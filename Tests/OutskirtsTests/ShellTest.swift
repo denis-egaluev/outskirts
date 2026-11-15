@@ -105,7 +105,7 @@ final class ShellTest: XCTestCase {
 
         store.stopRunning(signal: SIGTERM)
 
-        XCTAssertTrue(waitUntil { kill(child, 0) == -1 && errno == ESRCH }, "the child of the process outlived the signal")
+        XCTAssertTrue(waitUntil { ProcessLiveness.isGone(child) }, "the child of the process outlived the signal")
     }
 
     /// A process that ignores the signal is killed after a delay instead of holding the exit forever.
@@ -125,7 +125,16 @@ final class ShellTest: XCTestCase {
         store.stopRunning(signal: SIGTERM)
 
         XCTAssertLessThan(Date().timeIntervalSince(stopped), 5)
-        XCTAssertTrue(waitUntil { kill(child, 0) == -1 && errno == ESRCH }, "the process that ignores the signal is still running")
+        XCTAssertTrue(waitUntil { ProcessLiveness.isGone(child) }, "the process that ignores the signal is still running")
+    }
+
+    /// A zombie left by a non-reaping PID 1 counts as gone, read from `/proc/<pid>/stat`.
+    func testStatFields_readsStateAndGroupAfterTheLastParenthesis() {
+        XCTAssertEqual(ProcessLiveness.statFields("123 (a b) c) Z 1 456 456 0")?.state, "Z")
+        XCTAssertEqual(ProcessLiveness.statFields("123 (a b) c) Z 1 456 456 0")?.group, 456)
+        XCTAssertEqual(ProcessLiveness.statFields("7 (sleep) S 1 7 7 0")?.state, "S")
+        XCTAssertNil(ProcessLiveness.statFields("7 sleep S 1 7"))
+        XCTAssertNil(ProcessLiveness.statFields("7 (sleep) S 1"))
     }
 
     /// Once the store is stopping, a command started afterwards is not launched.

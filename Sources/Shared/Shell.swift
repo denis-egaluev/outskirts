@@ -300,7 +300,7 @@ final class ShellProcessStore: Sendable {
     private static func waitUntilGone(_ groups: Set<pid_t>, timeout: Duration) -> Bool {
         let deadline = ContinuousClock.now + timeout
         while true {
-            if groups.allSatisfy({ kill(-$0, 0) == -1 && errno == ESRCH }) {
+            if groups.allSatisfy(ProcessLiveness.isGroupGone) {
                 return true
             }
             if ContinuousClock.now >= deadline {
@@ -452,4 +452,64 @@ public extension String {
         }
         return "'" + replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
+}
+
+/// Whether processes are gone. A zombie counts as gone: in a container whose PID 1 does not reap orphans, the
+/// orphaned children of a stopped command stay zombies forever, yet `kill(pid, 0)` still succeeds on them.
+enum ProcessLiveness {
+    /// The state and process group of a `/proc/<pid>/stat` line, read after the last `)` since the command name may
+    /// hold spaces and parentheses.
+    static func statFields(_ line: String) -> (state: Character, group: pid_t)? {
+        guard let close = line.lastIndex(of: ")") else { return nil }
+
+        let fields = line[line.index(after: close)...].split(separator: " ")
+        guard fields.count >= 3, let state = fields[0].first, let group = pid_t(fields[2]) else { return nil }
+
+        return (state, group)
+    }
+
+    static func isGone(_ pid: pid_t) -> Bool {
+        if kill(pid, 0) == -1, errno == ESRCH {
+            return true
+        }
+
+        #if os(Linux)
+            return stat(of: pid).map { $0.state == "Z" } ?? true
+        #else
+            return false
+        #endif
+    }
+
+    static func isGroupGone(_ group: pid_t) -> Bool {
+        if kill(-group, 0) == -1, errno == ESRCH {
+            return true
+        }
+
+        #if os(Linux)
+            let entries: [String]
+            do {
+                entries = try FileManager.default.contentsOfDirectory(atPath: "/proc")
+            } catch {
+                return false
+            }
+            return entries.compactMap { pid_t($0) }.allSatisfy { pid in
+                guard let fields = stat(of: pid) else { return true }
+
+                return fields.group != group || fields.state == "Z"
+            }
+        #else
+            return false
+        #endif
+    }
+
+    #if os(Linux)
+        /// `nil` when the entry cannot be read: the process exited in between, so it is gone.
+        private static func stat(of pid: pid_t) -> (state: Character, group: pid_t)? {
+            do {
+                return try statFields(String(contentsOfFile: "/proc/\(pid)/stat", encoding: .utf8))
+            } catch {
+                return nil
+            }
+        }
+    #endif
 }

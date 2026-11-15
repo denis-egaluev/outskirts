@@ -116,8 +116,7 @@ final class SignalExitStatusTest: XCTestCase {
 
         XCTAssertEqual(process.terminationReason, .exit, "periphery was killed by the signal instead of exiting\n\(log())")
         XCTAssertEqual(process.terminationStatus, expectedStatus, log())
-        XCTAssertEqual(kill(pid, 0), -1, "the child build process is still running")
-        XCTAssertEqual(errno, ESRCH)
+        XCTAssertTrue(ProcessLiveness.isGone(pid), "the child build process is still running")
     }
 
     /// Launches outskirts, or `launcher` with the path of outskirts as its first argument.
