@@ -139,8 +139,8 @@ final class GitIndexFreshnessTest: XCTestCase {
 
     // MARK: - Files no unit describes
 
-    private func unindexed(_ freshness: GitIndexFreshness, indexed: [String]) -> [String] {
-        freshness.unindexedChanges(indexed: Set(indexed.map(file)), in: root) { _ in false }
+    private func unindexed(_ freshness: GitIndexFreshness, indexed: [String], inputs: ScanInputs = ScanInputs(sourceFiles: nil, resources: [])) -> [String] {
+        freshness.unindexedChanges(indexed: Set(indexed.map(file)), in: root, inputs: inputs) { _ in false }
             .map { String($0.string.dropFirst(RealPath.resolve(root.string).count + 1)) }
             .sorted()
     }
@@ -180,7 +180,49 @@ final class GitIndexFreshnessTest: XCTestCase {
             try write("x\n", to: name)
         }
 
-        XCTAssertEqual(unindexed(try freshness(), indexed: []), read.sorted())
+        let resources = ["App/Localizable.xcstrings", "App/Info.plist", "App/Main.storyboard", "App/View.xib", "App/Model.xcdatamodeld", "App/Mapping.xcmappingmodel"]
+        let inputs = ScanInputs(sourceFiles: [], resources: Set(resources.map(file)), readsMetalSources: true, readsAssetCatalogs: true)
+
+        XCTAssertEqual(unindexed(try freshness(), indexed: [], inputs: inputs), read.sorted())
+    }
+
+    /// A Swift file added outside the analyzed targets, such as a script, is not compiled into them.
+    func testAddedSwiftFileOutsideTheAnalyzedTargets_isIgnored() throws {
+        try makeRepository()
+        try write("print(1)\n", to: "Scripts/tool.swift")
+        try write("struct C {}\n", to: "Sources/C.swift")
+
+        let unindexed = unindexed(
+            try freshness(),
+            indexed: ["Sources/A.swift", "Sources/B.swift"],
+            inputs: ScanInputs(sourceFiles: [file("Sources/A.swift"), file("Sources/B.swift"), file("Sources/C.swift")], resources: [])
+        )
+
+        XCTAssertEqual(unindexed, ["Sources/C.swift"])
+    }
+
+    /// A project driver that does not list its sources, such as a generic project, counts every added Swift file.
+    func testAddedSwiftFile_countsWhenTheSourcesAreNotListed() throws {
+        try makeRepository()
+        try write("print(1)\n", to: "Scripts/tool.swift")
+
+        XCTAssertEqual(unindexed(try freshness(), indexed: [], inputs: ScanInputs(sourceFiles: nil, resources: [])), ["Scripts/tool.swift"])
+    }
+
+    /// Resources the project does not read, such as test fixtures, and Metal sources and asset catalogs when their
+    /// detection is off, do not change the results.
+    func testChangedResourcesTheScanDoesNotRead_areIgnored() throws {
+        try makeRepository()
+        let notRead = [
+            "Fixtures/x.plist", "Docs/View.xib", "Fixtures/Other.xcstrings", "Fixtures/M.xcdatamodeld/M.xcdatamodel/contents",
+            "Sources/Lib/Assets.xcassets/Contents.json", "Shaders/S.metal",
+        ]
+        for name in notRead + ["App/Info.plist", "App/Model.xcdatamodeld/Model.xcdatamodel/contents"] {
+            try write("x\n", to: name)
+        }
+        let inputs = ScanInputs(sourceFiles: [], resources: [file("App/Info.plist"), file("App/Model.xcdatamodeld")])
+
+        XCTAssertEqual(unindexed(try freshness(), indexed: [], inputs: inputs), ["App/Info.plist", "App/Model.xcdatamodeld/Model.xcdatamodel/contents"])
     }
 
     func testChangedFilesOutsideTheProjectRootOrExcluded_areIgnored() throws {
@@ -189,9 +231,80 @@ final class GitIndexFreshnessTest: XCTestCase {
         try write("struct D {}\n", to: "Sources/D.swift")
         let real = FilePath(RealPath.resolve(root.string))
 
-        let unindexed = try freshness().unindexedChanges(indexed: [], in: root.appending("Sources")) { $0 == real.appending("Sources/D.swift") }
+        let unindexed = try freshness().unindexedChanges(indexed: [], in: root.appending("Sources"), inputs: ScanInputs(sourceFiles: nil, resources: [])) {
+            $0 == real.appending("Sources/D.swift")
+        }
 
         XCTAssertEqual(unindexed, [])
+    }
+
+    // MARK: - Git environment
+
+    /// A git hook exports the index of the commit in progress; the scan reads the repository of the project root.
+    func testInheritedGitIndexFile_isIgnored() throws {
+        try makeRepository()
+        let other = try FilePath(makeTemporaryDirectory("outskirts-other-index").path)
+        addTeardownBlock {
+            unsetenv("GIT_INDEX_FILE")
+            try? FileManager.default.removeItem(atPath: other.string)
+        }
+        setenv("GIT_INDEX_FILE", other.appending("index").string, 1)
+
+        XCTAssertEqual(try freshness().hasChanged(file("Sources/A.swift")), false)
+    }
+
+    /// Reading the changes takes no lock on the git index, so that it never races a git command of the user; a file
+    /// whose stat data changed is still judged by its content.
+    func testReadingChanges_doesNotWriteTheGitIndex() throws {
+        try makeRepository()
+        try write("struct A {}\n", to: "Sources/A.swift")
+        try write("struct B2 {}\n", to: "Sources/B.swift")
+        for name in ["Sources/A.swift", "Sources/B.swift"] {
+            try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(3600)], ofItemAtPath: file(name).string)
+        }
+        let index = file(".git/index").string
+        let before = try FileManager.default.attributesOfItem(atPath: index)
+
+        let freshness = try freshness()
+        try git("status", "--porcelain")
+
+        XCTAssertEqual(freshness.hasChanged(file("Sources/A.swift")), false)
+        XCTAssertEqual(freshness.hasChanged(file("Sources/B.swift")), true)
+
+        let after = try FileManager.default.attributesOfItem(atPath: index)
+        XCTAssertEqual(after[.systemFileNumber] as? Int, before[.systemFileNumber] as? Int)
+        XCTAssertEqual(after[.modificationDate] as? Date, before[.modificationDate] as? Date)
+    }
+
+    // MARK: - Path forms and index flags
+
+    /// git lists paths in the composed form (`core.precomposeUnicode`); a unit may name the decomposed form on disk.
+    func testDecomposedFileName_isJudgedByGit() throws {
+        try makeRepository()
+        let decomposed = "Sources/Cafe\u{301}.swift"
+        try write("struct C {}\n", to: decomposed)
+        try commit("second")
+        try write("struct C { let a: A }\n", to: decomposed)
+
+        let freshness = try freshness()
+
+        XCTAssertEqual(freshness.hasChanged(file(decomposed)), true)
+        XCTAssertEqual(freshness.hasChanged(file("Sources/Caf\u{E9}.swift")), true)
+    }
+
+    /// git does not look at the working tree copy of a file marked skip-worktree or assume-unchanged, so that it
+    /// cannot tell whether it changed: its date decides.
+    func testFileGitDoesNotLookAt_isJudgedByDate() throws {
+        try makeRepository()
+        try git("update-index", "--skip-worktree", "Sources/A.swift")
+        try git("update-index", "--assume-unchanged", "Sources/B.swift")
+        try write("struct A { let b: B }\n", to: "Sources/A.swift")
+        try write("struct B { let a: A }\n", to: "Sources/B.swift")
+
+        let freshness = try freshness()
+
+        XCTAssertNil(freshness.hasChanged(file("Sources/A.swift")))
+        XCTAssertNil(freshness.hasChanged(file("Sources/B.swift")))
     }
 
     // MARK: - Files git does not judge
@@ -241,7 +354,8 @@ final class GitIndexFreshnessTest: XCTestCase {
         configuration.indexBuiltFrom = "HEAD"
         let collector = SourceFileCollector(
             indexStorePaths: [root.appending("missing-store")],
-            excludedTestTargets: [],
+            excludedModules: [],
+            scanInputs: ScanInputs(sourceFiles: nil, resources: []),
             logger: Logger(quiet: true, verbose: false, colorMode: .never).contextualized(with: "test"),
             configuration: configuration
         )

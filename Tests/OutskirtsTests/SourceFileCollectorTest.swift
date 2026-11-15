@@ -180,6 +180,17 @@ final class SourceFileCollectorTest: XCTestCase {
         )
     }
 
+    func testIndexWarnings_doNotSuggestCleanBuildWhenTheBuildIsSkipped() throws {
+        let outdated = try XCTUnwrap(SourceFileCollector.outdatedIndexWarning(["/project/DD": ["/project/Sources/A.swift"]], relativeTo: "/project", buildSkipped: true))
+        let unreadable = try XCTUnwrap(SourceFileCollector.unreadableUnitsWarning(["/project/DD": ["A.o-1"]], relativeTo: "/project", buildSkipped: true))
+        let changed = try XCTUnwrap(SourceFileCollector.changedSinceRevisionWarning(["/project/DD": ["/project/Sources/A.swift"]], unindexed: [], revision: "abc123", relativeTo: "/project", buildSkipped: true))
+
+        for warning in [outdated, unreadable, changed] {
+            XCTAssertFalse(warning.contains("--clean-build"), warning)
+            XCTAssertTrue(warning.hasSuffix("rebuild the index store before scanning, e.g. by building the project again."), warning)
+        }
+    }
+
     func testOutdatedIndexWarning_countsEveryFileAndListsAFewPerStore() {
         let mac: Set<FilePath> = ["/project/Sources/A.swift", "/project/Sources/B.swift"]
         let ios: Set<FilePath> = Set((1 ... 5).map { FilePath("/project/Sources/F\($0).swift") })
@@ -244,7 +255,8 @@ final class SourceFileCollectorTest: XCTestCase {
         configuration.apply(\.$strictIndex, strictIndex)
         return SourceFileCollector(
             indexStorePaths: [store],
-            excludedTestTargets: [],
+            excludedModules: [],
+            scanInputs: ScanInputs(sourceFiles: nil, resources: []),
             logger: Logger(quiet: true, verbose: false, colorMode: .never).contextualized(with: "test"),
             configuration: configuration
         )

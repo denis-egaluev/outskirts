@@ -60,8 +60,8 @@ public struct FixPlanner {
         }
 
         let original = try [UInt8](Data(contentsOf: URL(fileURLWithPath: file.string)))
-        let fixed = try XCStringsKeyRemover.removing(keys, from: original)
-        return FixPlan.Change(path: file, realPath: realPath, original: original, fixed: fixed, removedKeys: keys)
+        let removal = try XCStringsKeyRemover.removing(keys, from: original)
+        return FixPlan.Change(path: file, realPath: realPath, original: original, fixed: removal.bytes, removedRanges: removal.removedRanges, removedKeys: keys)
     }
 
     private func modificationDate(of status: stat) -> Date {

@@ -74,6 +74,7 @@ public final class GenericProjectDriver {
     private let xcMappingModelsPaths: Set<FilePath>
     private let xcStringsPaths: Set<FilePath>
     private let testTargets: Set<String>
+    private let configPath: FilePath
     private let configuration: Configuration
 
     public convenience init(genericProjectConfig: FilePath, configuration: Configuration) throws {
@@ -93,6 +94,7 @@ public final class GenericProjectDriver {
             xcMappingModelsPaths: xcMappingModelPaths,
             xcStringsPaths: xcStringsPaths,
             testTargets: config.testTargets,
+            configPath: genericProjectConfig,
             configuration: configuration
         )
     }
@@ -105,6 +107,7 @@ public final class GenericProjectDriver {
         xcMappingModelsPaths: Set<FilePath>,
         xcStringsPaths: Set<FilePath>,
         testTargets: Set<String>,
+        configPath: FilePath,
         configuration: Configuration
     ) {
         self.indexstorePaths = indexstorePaths
@@ -114,16 +117,40 @@ public final class GenericProjectDriver {
         self.xcMappingModelsPaths = xcMappingModelsPaths
         self.xcStringsPaths = xcStringsPaths
         self.testTargets = testTargets
+        self.configPath = configPath
         self.configuration = configuration
+    }
+
+    /// The listed resource files are explicit user input, so a missing one fails the scan with the key that lists it.
+    func validateListedFiles() throws {
+        let lists: [(GenericConfigKey, Set<FilePath>)] = [
+            (.plists, plistPaths),
+            (.xibs, xibPaths),
+            (.xcdatamodels, xcDataModelsPaths),
+            (.xcmappingmodels, xcMappingModelsPaths),
+            (.xcstrings, xcStringsPaths),
+        ]
+
+        for (key, paths) in lists {
+            if let missing = paths.sorted(by: { $0.string < $1.string }).first(where: { !$0.exists }) {
+                throw PeripheryError.usageError("Invalid generic project config \(configPath.string): '\(key.rawValue)' lists '\(missing.string)', which does not exist")
+            }
+        }
     }
 }
 
 extension GenericProjectDriver: ProjectDriver {
     public func plan(logger: ContextualLogger) throws -> IndexPlan {
-        let excludedTestTargets = configuration.excludeTests ? testTargets : []
+        try validateListedFiles()
         let collector = SourceFileCollector(
             indexStorePaths: Set(configuration.indexStorePath).union(indexstorePaths),
-            excludedTestTargets: excludedTestTargets,
+            excludedModules: configuration.excludeTests ? testTargets : [],
+            scanInputs: ScanInputs(
+                sourceFiles: nil,
+                resources: plistPaths.union(xibPaths).union(xcDataModelsPaths).union(xcMappingModelsPaths).union(xcStringsPaths),
+                readsMetalSources: configuration.detectUnusedMetalFunctions,
+                readsAssetCatalogs: configuration.detectsUnusedAssetCatalogSymbols
+            ),
             logger: logger,
             configuration: configuration
         )

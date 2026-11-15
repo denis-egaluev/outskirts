@@ -24,3 +24,17 @@ func resolveIndexStorePaths(configured: [FilePath], derive: () throws -> FilePat
     }
     return try [derive()]
 }
+
+/// The names of `exclude_targets` that are neither the name nor the module name of a target of the project. Such a
+/// name still leaves out the index units of a module of that name, such as a dependency.
+func unmatchedExcludedTargets(_ names: [String], targets: some Sequence<String>) -> [String] {
+    let known = Set(targets)
+    return names.filter { !known.contains($0) }
+}
+
+/// Warns about each name of `exclude_targets` that matches no target of the project.
+func warnUnmatchedExcludedTargets(_ names: [String], targets: some Sequence<String>, logger: ContextualLogger) {
+    for name in unmatchedExcludedTargets(names, targets: targets) {
+        logger.warn("'exclude_targets' names '\(name)', which is neither the name nor the module name of a target of the project: only the index units of a module of that name, if any, are left out.")
+    }
+}

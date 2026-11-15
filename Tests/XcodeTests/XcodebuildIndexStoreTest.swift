@@ -139,4 +139,20 @@ final class XcodebuildIndexStoreTest: XCTestCase {
         pipe.fileHandleForWriting.closeFile()
         return try XCTUnwrap(String(bytes: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8))
     }
+
+    func testIndexStorePath_prefersTheStoreWithUnitsOverAnEmptyOne() throws {
+        let derivedData = try xcodebuild.derivedDataPath(for: project, schemes: ["IndexStoreUnits"])
+        defer { try? FileManager.default.removeItem(atPath: derivedData.string) }
+        try FileManager.default.createDirectory(
+            atPath: derivedData.appending("Index.noindex/DataStore").string,
+            withIntermediateDirectories: true
+        )
+        let filled = derivedData.appending("Index/DataStore")
+        try FileManager.default.createDirectory(atPath: filled.appending("v5/units").string, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: filled.appending("v5/units/unit").string, contents: Data())
+
+        let path = try xcodebuild.indexStorePath(project: project, schemes: ["IndexStoreUnits"])
+
+        XCTAssertEqual(path, filled)
+    }
 }

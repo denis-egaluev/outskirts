@@ -38,6 +38,10 @@ private struct JSONScanner {
     }
 
     mutating func scanCatalog() throws -> XCStringsLayout? {
+        // A UTF-8 byte order mark, which the scan's decoder accepts, stays in the bytes before the `strings` object.
+        if bytes.starts(with: [0xEF, 0xBB, 0xBF]) {
+            offset = 3
+        }
         skipWhitespace()
         guard peek() == UInt8(ascii: "{") else { throw XCStringsKeyRemovalError.unexpectedStructure("the catalog is not a JSON object") }
 

@@ -85,6 +85,10 @@ public final class XcodeProjectSetupGuide: SetupGuideHelpers, SetupGuide {
             project
         ).map(\.self).sorted()
 
+        guard !schemes.isEmpty else {
+            throw PeripheryError.guidedSetupError(message: "Found no schemes in '\(project.path.relativeTo(.current))', share or create a scheme in Xcode, then run the guided setup again")
+        }
+
         print(logger.colorize("\nSelect the schemes to build:", .bold))
         print("outskirts will scan all files built by your chosen schemes.")
         configuration.schemes = try select(multiple: schemes).selectedValues
@@ -153,13 +157,17 @@ public final class XcodeProjectSetupGuide: SetupGuideHelpers, SetupGuide {
             .filter { !podSchemes.contains($0) }
     }
 
+    /// The menu of workspace or project paths, relative to the current directory and sorted to be stable.
+    static func menuOptions(_ paths: Set<FilePath>) -> [String] {
+        paths.map { $0.relativeTo(.current).string }.sorted()
+    }
+
     private func identifyWorkspace() throws -> FilePath? {
         var workspacePath: FilePath?
 
         if workspacePaths.count > 1 {
             print(logger.colorize("Found multiple workspaces, please select the one that defines the schemes for building your project:", .bold))
-            let workspaces = workspacePaths.map { $0.relativeTo(.current).string }
-            let workspace = try select(single: workspaces)
+            let workspace = try select(single: Self.menuOptions(workspacePaths))
             workspacePath = FilePath.makeAbsolute(workspace)
             print("")
         } else {
@@ -179,8 +187,7 @@ public final class XcodeProjectSetupGuide: SetupGuideHelpers, SetupGuide {
 
         if projectPaths.count > 1 {
             print(logger.colorize("Found multiple projects, please select the one that defines the schemes for building your project:", .bold))
-            let projects = projectPaths.map { $0.relativeTo(.current).string }.sorted()
-            let project = try select(single: projects)
+            let project = try select(single: Self.menuOptions(projectPaths))
             projectPath = FilePath.makeAbsolute(project)
             print("")
         } else {

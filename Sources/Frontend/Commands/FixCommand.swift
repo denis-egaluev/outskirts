@@ -26,7 +26,7 @@ struct FixCommand: ParsableCommand {
     var fixOptions: FixOptions
 
     @OptionGroup
-    var scan: ScanCommand
+    var scan: ScanArguments
 
     func validate() throws {
         if scan.projectOptions.setup {
@@ -41,7 +41,7 @@ struct FixCommand: ParsableCommand {
     }
 
     func run() throws {
-        let prepared = try scan.prepareScan(messagesToStderr: true)
+        let prepared = try ScanCommand(arguments: scan).prepareScan(messagesToStderr: true)
         let configuration = prepared.configuration
         let logger = prepared.logger
         try Self.validateScope(of: configuration, projectKind: prepared.project.kind, allowPartialScan: fixOptions.allowPartialScan)
@@ -52,7 +52,7 @@ struct FixCommand: ParsableCommand {
             .perform(project: prepared.project)
         let filtered = try OutputDeclarationFilter(configuration: configuration, logger: logger)
             .filter(output.results, with: prepared.baseline)
-        let reported = try ChangedSinceFilter(configuration: configuration, shell: prepared.shell, logger: logger)
+        let reported = try ChangedSinceFilter(configuration: configuration, logger: logger)
             .filter(filtered)
 
         let includeMatchers = configuration.buildFilenameMatchers(with: fixOptions.includes)

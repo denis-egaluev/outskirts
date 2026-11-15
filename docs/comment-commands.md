@@ -19,7 +19,7 @@ class MyClass {}
 
 ## Ignore parameters
 
-Ignore specific unused function parameters by name, separated by commas:
+Ignore specific unused function parameters by name, separated by commas (spaces around the commas are allowed):
 
 ```swift
 // outskirts:ignore:parameters unusedOne,unusedTwo
@@ -45,7 +45,7 @@ struct GeneratedClient {}
 
 ## Explain why
 
-Comment commands accept a trailing comment after a hyphen, so the reason stays on the same line:
+Comment commands accept a trailing comment after a hyphen, so the reason stays on the same line. A hyphen inside a value, such as `location="gen-file.swift"`, does not start the comment:
 
 ```swift
 // outskirts:ignore - called by the plugin host

@@ -70,6 +70,17 @@ final class IndexCoverageStrictTest: XCTestCase {
         )
     }
 
+    /// A Mac Catalyst target is declared an iOS one by its settings: an index of its Mac Catalyst build alone covers it.
+    func testMacCatalystTargetBuiltForMacCatalystOnly_isCovered() {
+        let expected: [String: Set<FilePath>] = ["App": [shared]]
+        let targets = ["App": CoverageTarget(moduleName: "App", platforms: [.iOS])]
+        let units: [FilePath: Set<Unit>] = [shared: [unit("App", "arm64-apple-ios17.0-macabi")]]
+
+        XCTAssertEqual(IndexCoverage.shortfalls(expected: expected, units: units, targets: targets), [])
+        XCTAssertFalse(IndexPlatform.macCatalyst.isCovered(by: [.iOS]))
+        XCTAssertFalse(IndexPlatform.macOS.isCovered(by: [.macCatalyst]))
+    }
+
     func testIndexWithoutTestTargets_reportsThem() {
         var expected = iOSTargets
         expected["AppTests"] = [test]
@@ -125,6 +136,15 @@ final class IndexCoverageStrictTest: XCTestCase {
         let units: [FilePath: Set<Unit>] = [shared: [unit("App", "arm64-apple-macosx14.0")]]
 
         XCTAssertEqual(IndexCoverage.shortfalls(expected: expected, units: units, targets: [:]), [.target("Tool", platforms: [])])
+    }
+
+    /// Units of a triple without a known system, such as Embedded Swift or WebAssembly, cover a target expected on any platform.
+    func testUnitsOfUnknownPlatform_coverTargetExpectedOnAnyPlatform() {
+        let expected: [String: Set<FilePath>] = ["App": [shared]]
+        let targets = ["App": CoverageTarget(moduleName: "App", platforms: [])]
+        let units: [FilePath: Set<Unit>] = [shared: [unit("App", "arm64-apple-none-macho"), unit("App", "wasm32-unknown-wasi")]]
+
+        XCTAssertEqual(IndexCoverage.shortfalls(expected: expected, units: units, targets: targets), [])
     }
 
     func testMessage_namesTargetsPlatformsAndFiles() {

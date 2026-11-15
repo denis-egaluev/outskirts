@@ -32,7 +32,7 @@ extension SPMProjectDriver: ProjectDriver {
     public func build() throws {
         if !configuration.skipBuild {
             if configuration.cleanBuild {
-                try pkg.clean()
+                try pkg.clean(additionalArguments: configuration.buildArguments)
             }
 
             if configuration.outputFormat.supportsAuxiliaryOutput {
@@ -52,18 +52,25 @@ extension SPMProjectDriver: ProjectDriver {
         // Load package description once and reuse it
         let description = try pkg.load()
 
-        let excludedTestTargets = configuration.excludeTests ? testTargetNames(from: description) : []
+        let excludedTargets = excludedTargets(of: description)
+        warnUnmatchedExcludedTargets(configuration.excludeTargets, targets: description.targets.flatMap { [$0.name, $0.c99name].compactMap(\.self) }, logger: logger)
+        let xibPaths = projectFiles(of: .interfaceBuilder, from: description)
+        let xcDataModelPaths = projectFiles(of: .xcDataModel, from: description)
+        let xcStringsPaths = projectFiles(of: .xcStrings, from: description)
+        let expectedSourceFiles = expectedSourceFiles(from: description, excluding: excludedTargets.mapSet(\.name))
         let collector = SourceFileCollector(
             indexStorePaths: indexStorePaths,
-            excludedTestTargets: excludedTestTargets,
+            excludedModules: excludedTargets.mapSet(\.moduleName),
+            scanInputs: ScanInputs(
+                sourceFiles: Set(expectedSourceFiles.values.joined()),
+                resources: xibPaths.union(xcDataModelPaths).union(xcStringsPaths),
+                readsMetalSources: configuration.detectUnusedMetalFunctions,
+                readsAssetCatalogs: configuration.detectsUnusedAssetCatalogSymbols
+            ),
             logger: logger,
             configuration: configuration
         )
         let (sourceFiles, unreadableUnits) = try collector.collect()
-        let xibPaths = projectFiles(of: .interfaceBuilder, from: description)
-        let xcDataModelPaths = projectFiles(of: .xcDataModel, from: description)
-        let xcStringsPaths = projectFiles(of: .xcStrings, from: description)
-        let expectedSourceFiles = expectedSourceFiles(from: description, excluding: excludedTestTargets)
 
         return IndexPlan(
             sourceFiles: sourceFiles,
@@ -72,7 +79,7 @@ extension SPMProjectDriver: ProjectDriver {
             xcStringsPaths: xcStringsPaths,
             xcStringsModules: projectFileModules(of: .xcStrings, from: description),
             expectedSourceFiles: expectedSourceFiles,
-            coverageTargets: configuration.strictIndexCoverage ? coverageTargets(of: expectedSourceFiles.keys) : [:],
+            coverageTargets: configuration.strictIndexCoverage ? coverageTargets(of: description.targets.filter { expectedSourceFiles.keys.contains($0.name) }) : [:],
             unreadableUnits: unreadableUnits,
             indexStorePaths: indexStorePaths
         )
@@ -80,15 +87,16 @@ extension SPMProjectDriver: ProjectDriver {
 
     // MARK: - Private
 
-    /// Every target is expected on the platform the package is built for: the host, or the platform of a `--triple`
-    /// build argument; any platform with `--swift-sdk`, whose platform is not known here.
-    func coverageTargets(of targets: some Sequence<String>) -> [String: CoverageTarget] {
-        let platforms = Self.buildPlatforms(arguments: configuration.buildArguments)
+    /// Every target is expected on the platform the package is built for: the platform of a `--triple` build argument,
+    /// else the host; any platform with `--swift-sdk` or a triple of an unknown system, whose platform is not known
+    /// here, and with an index store given by `--index-store-path` without `--triple`, which may come from any build.
+    func coverageTargets(of targets: [Target]) -> [String: CoverageTarget] {
+        let platforms = Self.buildPlatforms(arguments: configuration.buildArguments, externalIndexStore: !configuration.indexStorePath.isEmpty)
 
-        return Dictionary(uniqueKeysWithValues: targets.map { ($0, CoverageTarget(moduleName: $0, platforms: platforms)) })
+        return Dictionary(uniqueKeysWithValues: targets.map { ($0.name, CoverageTarget(moduleName: $0.moduleName, platforms: platforms)) })
     }
 
-    static func buildPlatforms(arguments: [String]) -> Set<IndexPlatform> {
+    static func buildPlatforms(arguments: [String], externalIndexStore: Bool) -> Set<IndexPlatform> {
         for (index, argument) in arguments.enumerated() {
             if argument == "--swift-sdk" || argument.hasPrefix("--swift-sdk=") {
                 return []
@@ -101,11 +109,10 @@ extension SPMProjectDriver: ProjectDriver {
             }
         }
 
-        return [.host]
+        return externalIndexStore ? [] : [.host]
     }
 
-    func expectedSourceFiles(from description: PackageDescription, excluding excludedTargets: Set<String>) -> [String: Set<FilePath>] {
-        let excluded = excludedTargets.union(configuration.excludeTargets)
+    func expectedSourceFiles(from description: PackageDescription, excluding excluded: Set<String>) -> [String: Set<FilePath>] {
         var result: [String: Set<FilePath>] = [:]
 
         for target in description.targets where !excluded.contains(target.name) {
@@ -122,8 +129,13 @@ extension SPMProjectDriver: ProjectDriver {
         return result
     }
 
-    private func testTargetNames(from description: PackageDescription) -> Set<String> {
-        description.targets.filter(\.isTestTarget).mapSet(\.name)
+    /// The test targets with `exclude_tests`, and the targets `exclude_targets` names by target or module name.
+    func excludedTargets(of description: PackageDescription) -> [Target] {
+        description.targets.filter { target in
+            (configuration.excludeTests && target.isTestTarget)
+                || configuration.excludeTargets.contains(target.name)
+                || configuration.excludeTargets.contains(target.moduleName)
+        }
     }
 
     private func projectFiles(of kind: ProjectFileKind, from description: PackageDescription) -> Set<FilePath> {
@@ -137,7 +149,7 @@ extension SPMProjectDriver: ProjectDriver {
 
         for target in description.targets {
             let targetPath = pkg.path.appending(target.path)
-            let module = target.c99name ?? target.name
+            let module = target.moduleName
             var targetFiles: Set<FilePath> = []
 
             // SwiftPM processes Interface Builder files and Core Data models implicitly, without a `resources:` declaration,

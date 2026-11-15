@@ -281,6 +281,19 @@ struct SwiftIndexStoreReader {
         return refs
     }
 
+    /// Kinds of functions that can be referenced without being called, e.g. `items.map(transform)`.
+    private static let functionValueKinds: Set<Declaration.Kind> = [
+        .functionFree,
+        .functionMethodInstance,
+        .functionMethodClass,
+        .functionMethodStatic,
+        .functionConstructor,
+        .functionOperator,
+        .functionOperatorInfix,
+        .functionOperatorPostfix,
+        .functionOperatorPrefix,
+    ]
+
     private static func parseReference(
         _ occurrence: SymbolOccurrence,
         _ occurrenceUsr: String,
@@ -296,6 +309,7 @@ struct SwiftIndexStoreReader {
         }
 
         var refs = [Reference]()
+        let isFunctionValue = functionValueKinds.contains(kind) && occurrence.roles.isDisjoint(with: [.call, .implicit])
 
         for relation in relations {
             if !relation.roles.isDisjoint(with: [.baseOf, .calledBy, .containedBy, .extendedBy]) {
@@ -309,6 +323,7 @@ struct SwiftIndexStoreReader {
                         usr: occurrenceUsr,
                         location: location
                     )
+                    ref.isFunctionValue = isFunctionValue
                     refs.append(ref)
                     records.referencesByUsr[referencerUsr, default: []].insert(ref)
                 }
@@ -323,6 +338,7 @@ struct SwiftIndexStoreReader {
                 usr: occurrenceUsr,
                 location: location
             )
+            ref.isFunctionValue = isFunctionValue
             refs.append(ref)
 
             // The index store doesn't contain any relations for this reference, save it so that we can attempt

@@ -73,7 +73,9 @@ final class UnusedParameterRetainer: SourceGraphMutator {
             let allFunctionDecls = overrideFunctionDecls + [baseFunctionDecl]
             visitedDecls.formUnion(allFunctionDecls)
 
-            if didResolveBase {
+            if allFunctionDecls.contains(where: hasImposedSignature) {
+                retainAllUnusedParams(inMethods: allFunctionDecls)
+            } else if didResolveBase {
                 if baseFunctionDecl.accessibility.value == .open,
                    configuration.retainsPublicDeclarations(inModules: baseFunctionDecl.location.file.modules)
                 {
@@ -88,6 +90,25 @@ final class UnusedParameterRetainer: SourceGraphMutator {
                 retainAllUnusedParams(inMethods: allFunctionDecls)
             }
         }
+    }
+
+    /// Whether the parameter list is fixed by a use that the syntax of the function body does not show: the function
+    /// is used as a value (passed as an argument, assigned, or the target of a `#selector`), receives the arguments
+    /// of a parameterized Swift Testing test, or is a result builder method called by the compiler.
+    private func hasImposedSignature(_ decl: Declaration) -> Bool {
+        if graph.references(to: decl).contains(where: \.isFunctionValue) {
+            return true
+        }
+
+        if decl.location.file.importsSwiftTesting, decl.attributes.contains(where: { $0.name == "Test" }) {
+            return true
+        }
+
+        if let parent = decl.parent, parent.attributes.contains(where: { $0.name == "resultBuilder" }) {
+            return ResultBuilderRetainer.isResultBuilderMethod(decl.name)
+        }
+
+        return false
     }
 
     private func hasExternalRelatedReferences(from decl: Declaration) -> Bool {

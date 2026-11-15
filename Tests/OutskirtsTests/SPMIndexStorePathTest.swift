@@ -139,4 +139,31 @@ final class SPMIndexStorePathTest: XCTestCase {
             "--toolchain=/tmp/tc",
         ]])
     }
+
+    func testBinPathForwardsSwiftSDKPackagePathAndSanitizer() throws {
+        let bin = try makeDirectory(".build/out/Products/Debug")
+        let (package, shell) = makePackage(binPath: bin)
+
+        _ = try package.binPath(additionalArguments: [
+            "--swift-sdk", "wasm32-unknown-wasi", "--package-path=/tmp/pkg", "--sanitize", "address", "-v",
+        ])
+
+        XCTAssertEqual(shell.commands, [[
+            "swift", "build", "--show-bin-path",
+            "--swift-sdk", "wasm32-unknown-wasi", "--package-path=/tmp/pkg", "--sanitize", "address",
+        ]])
+    }
+
+    func testCleanForwardsScratchAndPackagePaths() throws {
+        let (package, shell) = makePackage(binPath: "/unused")
+
+        try package.clean(additionalArguments: [
+            "--scratch-path", "/tmp/scratch", "-c", "release", "--package-path=/tmp/pkg", "--build-path", "/tmp/build",
+        ])
+
+        XCTAssertEqual(shell.commands, [[
+            "swift", "package", "clean",
+            "--scratch-path", "/tmp/scratch", "--package-path=/tmp/pkg", "--build-path", "/tmp/build",
+        ]])
+    }
 }

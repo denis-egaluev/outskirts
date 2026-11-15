@@ -54,7 +54,7 @@ final class ConfigurationSchemaTest: XCTestCase {
     }
 
     func testSettingsMatchTheScanOptions() throws {
-        let command = try ScanCommand.parse([])
+        let command = try ScanCommand.parse([]).arguments
         let groups: [Any] = [
             command,
             command.projectOptions,

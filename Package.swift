@@ -152,6 +152,7 @@ var targets: [PackageDescription.Target] = [
     .target(
         name: "Shared",
         dependencies: [
+            .target(name: "CStdio"),
             .target(name: "Extensions"),
             .target(name: "Logger"),
             .product(name: "SystemPackage", package: "swift-system"),
@@ -195,7 +196,7 @@ var targets: [PackageDescription.Target] = [
             .target(name: "TestShared"),
             .target(name: "PeripheryKit"),
         ],
-        exclude: ["SPMProject", "SPMProjectMacOS"]
+        exclude: ["SPMHyphenatedProject", "SPMProject", "SPMProjectMacOS"]
     ),
     .testTarget(
         name: "AccessibilityTests",

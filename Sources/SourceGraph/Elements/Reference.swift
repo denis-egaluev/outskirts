@@ -37,6 +37,9 @@ public final class Reference {
     public var parent: Declaration?
     public let usr: String
     public var role: Role = .unknown
+    /// Whether the referenced function is used as a value, e.g. passed as an argument or the target of a
+    /// `#selector`, rather than called. Its signature is then imposed by that use.
+    public var isFunctionValue = false
 
     private let hashValueCache: Int
 

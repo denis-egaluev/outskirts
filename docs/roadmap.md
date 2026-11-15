@@ -12,6 +12,7 @@ Issues carry a priority label, from `P1` (first) to `P3`.
 
 Recent releases, newest first:
 
+- **3.25.0** (2026-11-15): commands run with an empty standard input and in their own process group, DerivedData keyed anew, targets of the same name in distinct projects kept apart, fewer false unused parameters, `exclude_targets` matched by module name, safer git handling for `--changed-since` and `fix`.
 - **3.24.1** (2026-11-14): String Catalog keys passed through initializers, `??`, casts and subscripts retained; no assign-only result for a `let` assigned through a subscript; each codeclimate and gitlab-codequality issue gets its own fingerprint; configuration warnings shown with `--quiet`.
 - **3.24.0** (2026-11-13): scan on the index of a build that just ran instead of building again, with a coverage check per target and platform and a freshness check against a git revision.
 - **3.23.0** (2026-11-11): `outskirts fix` removes unused String Catalog keys, dry run by default; `--format agent` for coding agents.

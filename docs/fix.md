@@ -51,7 +51,7 @@ With `--apply`, the catalogs are written, stdout stays empty, and the summary st
 
 A key removed from a catalog is only recoverable if git can restore it, so by default `fix` only writes a catalog that git tracks and that has no uncommitted changes. A catalog that does not meet these rules is skipped, with the reason on the summary, and the other catalogs are still fixed. The skip reasons are:
 
-- the file has uncommitted changes (`--allow-dirty` accepts them);
+- the file has uncommitted changes, or is marked skip-worktree or assume-unchanged in the index, since git then hides its changes (`--allow-dirty` accepts them);
 - the project is not in a git repository (`--allow-dirty` accepts it);
 - the file is not tracked by git: ignored, or in a submodule or a nested repository;
 - the file is outside the git repository of the project, or outside the project root;
@@ -83,7 +83,9 @@ The refusal does not apply when `localized_string_key_patterns` declares the key
 
 ## Baselines, exclusions and comments
 
-`fix` removes what `scan` reports, after filtering. A key hidden by a [baseline](baselines.md), by `report_exclude`, or kept without `report_include`, is not removed. The same holds for the [comment commands](comment-commands.md) that keep a result. To keep a key on purpose, add it to the baseline (`outskirts scan --write-baseline`), or exclude its catalog with `localized_string_catalog_exclude`. By default, `InfoPlist.xcstrings` and `AppShortcuts.xcstrings` are excluded from the analysis, so `fix` leaves them alone.
+`fix` removes what `scan` reports, after filtering. A key hidden by a [baseline](baselines.md), by `report_exclude`, or kept without `report_include`, is not removed. The same holds for the [comment commands](comment-commands.md) that keep a result. To keep a key on purpose, add it to the baseline (`outskirts scan --write-baseline`), or exclude its catalog with `localized_string_catalog_exclude`. By default, `InfoPlist.xcstrings` and `AppShortcuts.xcstrings` are excluded from the analysis, so `fix` leaves them alone, as is the catalog of a storyboard or XIB: a catalog with its name, in its folder or next to its `.lproj` folder (`Main.xcstrings` next to `Main.storyboard` or `Base.lproj/Main.storyboard`).
+
+Only the scanned Swift source counts as a use of a key. A key read only by Objective-C (`NSLocalizedString(@"key", nil)`), by Interface Builder, or by code outside the scan (another target, a widget or extension that is not built) is reported unused, and `fix` removes it. Declare such keys with `localized_string_key_patterns`, or exclude their catalog with `localized_string_catalog_exclude`, before running `fix`.
 
 ## Exit status
 

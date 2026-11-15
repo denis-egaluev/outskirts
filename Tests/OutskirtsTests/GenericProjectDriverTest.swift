@@ -101,6 +101,32 @@ final class GenericProjectDriverTest: XCTestCase {
         }
     }
 
+    func testMissingListedFileNamesTheKeyAndPath() throws {
+        let present = try writeFile("", named: "present.xib", in: directory)
+        let missing = FilePath(directory.appendingPathComponent("nope.plist").path)
+        let file = try write(#"{"indexstores": ["a"], "plists": ["\#(missing.string)"], "xibs": ["\#(present.string)"]}"#)
+        let driver = try GenericProjectDriver(genericProjectConfig: file, configuration: Configuration())
+
+        XCTAssertThrowsError(try driver.validateListedFiles()) { error in
+            XCTAssertEqual(
+                error.localizedDescription,
+                "Invalid generic project config \(file.string): 'plists' lists '\(missing.string)', which does not exist"
+            )
+        }
+    }
+
+    func testEveryResourceListIsChecked() throws {
+        for key in ["xibs", "xcdatamodels", "xcmappingmodels", "xcstrings"] {
+            let missing = FilePath(directory.appendingPathComponent("absent-\(key)").path)
+            let file = try write(#"{"indexstores": ["a"], "\#(key)": ["\#(missing.string)"]}"#)
+            let driver = try GenericProjectDriver(genericProjectConfig: file, configuration: Configuration())
+
+            XCTAssertThrowsError(try driver.validateListedFiles()) { error in
+                XCTAssertTrue(error.localizedDescription.contains("'\(key)' lists '\(missing.string)'"), error.localizedDescription)
+            }
+        }
+    }
+
     // MARK: - Private
 
     private func message(of file: FilePath) -> String {

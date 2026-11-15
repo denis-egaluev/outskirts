@@ -1,3 +1,39 @@
+## 3.25.0 (2026-11-15)
+
+##### Breaking
+
+- Commands outskirts runs (the build, git and the other tools it calls) now run in a process group of their own with `/dev/null` as standard input. A build that prompts on the terminal, such as for a password or a passphrase, fails instead of waiting for an answer. See "A build that needs a password" in the troubleshooting guide: load the key into `ssh-agent` or set up a git credential helper, then scan again.
+- The DerivedData folders outskirts creates are keyed differently, so the folders of earlier versions are not reused: the first scan after upgrading builds the project from scratch once, and the old folders are evicted by the cache limits.
+
+##### Enhancements
+
+- An explicit `--no-skip-stdout-results` prints the results on stdout even with `--quiet`, and prints an empty report (`[]`) when there is no result, also together with `--write-results`, so a tool reading stdout can tell an empty report from one sent elsewhere.
+- `exclude_targets` and `exclude_tests` match module names, so a Swift package target `My-Lib` is excluded by `My-Lib` and by `My_Lib`, and a warning names every entry that matches no target. `--clean-build` warns when the build is skipped and the option has no effect.
+- A missing project, or a file listed in a generic project configuration that does not exist, is reported with its name and path. Error messages no longer show Swift type names.
+- With `--changed-since`, a file whose mode alone changed (for example made executable) counts as changed, as `git diff` reports it.
+- `--changed-since` and the other git calls no longer inherit `GIT_DIR`, `GIT_INDEX_FILE` or the other variables a git hook exports, run in the C locale and never write the git index of the project, so they no longer hold its lock against your own git commands.
+- `--strict-index` with `--index-built-from` only counts changes to the files the scan reads: a script outside the analyzed targets or a resource no target lists no longer fails it. File names in decomposed form on macOS are compared correctly, and a file marked `skip-worktree` or `assume-unchanged` is judged by its date.
+- Interrupting outskirts stops every process of a running command, including git, and kills those that outlast the signal. `SIGHUP` and `SIGQUIT` are relayed too, exiting with 129 and 131, except where they were ignored at launch, as under `nohup`. A process a command leaves running no longer keeps outskirts waiting.
+- `fix` refuses files marked `skip-worktree` or `assume-unchanged`, whose uncommitted changes `git status` hides, instead of overwriting them.
+- `fix --dry-run` builds its diff from the removed ranges, which takes seconds instead of minutes for a String Catalog of 100,000 lines that loses most of its keys. A usage error of `fix` points to `outskirts fix --help`.
+- `fix` edits String Catalogs that start with a UTF-8 byte order mark and keeps it.
+- Catalogs of storyboards and XIBs (such as `Main.xcstrings` next to `Main.storyboard`) are no longer analyzed, so `fix` no longer empties them. The documentation states that keys used only from Objective-C, Interface Builder or unscanned code are reported unused and how to protect them.
+- `localized_string_key_patterns` globs match keys that contain line breaks, and patterns are anchored on the whole key.
+- A `--derived-data-path` that is a file is reported as not a directory, and an empty `Index.noindex/DataStore` no longer hides a populated `Index/DataStore`.
+- An external Swift package index store passed with `--index-store-path` and no `--triple` accepts units of any platform, and the SDK, package path and sanitizer options are forwarded to `--show-bin-path` and `clean`.
+- A DerivedData folder that cannot be evicted from the cache is a warning instead of a failure, and the DerivedData folders of schemes `["App", "Tests"]` and `["AppTests"]` no longer collide. An `xcodebuild` that fails for another reason than the toolchain selection (a license not accepted, a broken install) shows its own error instead of the `xcode-select` hint.
+- Files of a variant group (localized storyboards, strings) are resolved against the source tree of each variant, not only the Base variant, so they are no longer reported missing and skipped. A file element left outside any group by a bad merge is skipped with a warning naming it and its project instead of stopping the scan.
+- `--strict-index-coverage` accepts the units of a Mac Catalyst build for the iOS platform of a target, and `$(inherited)` in `SUPPORTED_PLATFORMS` stands for the project value or the SDK platform instead of being dropped.
+- The guided setup lists workspaces and projects in a stable order, and no longer prompts forever when a menu has no option.
+- Documentation: a page presents the Visual Studio Code extension and the scans that fail in its views, the options reference is regenerated, and the website serves its 404 page for unknown paths.
+
+##### Bug Fixes
+
+- Parameters are no longer reported unused when the analysis missed their use: after a closure parameter that shadows them, in the default values of a nested function and in the attribute arguments of a local variable. Neither are the parameters of a function used as a value (passed as an argument, assigned, or the target of `#selector`), of a Swift Testing `@Test` function or of a result builder method.
+- `retain_equatable_properties` retains the properties of types that only declare `Comparable`, for which Swift synthesizes `==`.
+- `ignore:parameters` keeps every name when commas are followed by spaces, comment commands honor hyphens inside quoted values and words (`override location="gen-file.swift:7:3"`), and a command on the line after the opening of a block comment is honored.
+- Targets of the same name in distinct projects of a workspace are analyzed separately: only one was kept, so the files of the others were not analyzed, and their source files and index coverage were judged by the module and platforms of the last one. The same project reached through different relative paths is one project.
+
 ## 3.24.1 (2026-11-14)
 
 ##### Breaking

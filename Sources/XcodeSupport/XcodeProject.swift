@@ -12,6 +12,7 @@ public final class XcodeProject: XcodeProjectlike {
     public private(set) var targets: Set<XcodeTarget> = []
 
     let xcodeProject: XcodeProj
+    let fileElements: FileElementResolver
 
     private let xcodebuild: Xcodebuild
 
@@ -59,22 +60,25 @@ public final class XcodeProject: XcodeProjectlike {
         do {
             xcodeProject = try XcodeProj(pathString: self.path.lexicallyNormalized().string)
         } catch {
+            guard self.path.exists else {
+                throw PeripheryError.projectNotFound(path: self.path.string)
+            }
+
             throw PeripheryError.underlyingError(error)
         }
 
+        fileElements = FileElementResolver(sourceRoot: sourceRoot, projectName: name)
         var subProjects: [XcodeProject] = []
-        loadedProjectPaths.insert(path)
+        loadedProjectPaths.insert(path.lexicallyNormalized())
 
         // Don't search for sub projects within CocoaPods.
         if !path.components.contains("Pods.xcodeproj") {
             subProjects = try xcodeProject.pbxproj.fileReferences
                 .filter { $0.path?.hasSuffix(".xcodeproj") ?? false }
-                .compactMap { try $0.fullPath(sourceRoot: sourceRoot.string) }
-                .compactMap {
-                    let projectPath = FilePath($0)
-
+                .compactMap { [fileElements] in fileElements.path(of: $0, warn: { logger.warn($0) }) }
+                .compactMap { projectPath in
                     // Prevent infinite loading of circular references.
-                    guard !loadedProjectPaths.contains(projectPath) else { return nil }
+                    guard !loadedProjectPaths.contains(projectPath.lexicallyNormalized()) else { return nil }
 
                     return try XcodeProject(
                         path: projectPath,
@@ -97,14 +101,16 @@ public final class XcodeProject: XcodeProjectlike {
     }
 }
 
+/// A project is identified by its normalized path: the same project referenced through different relative paths is
+/// one project.
 extension XcodeProject: Hashable {
     public func hash(into hasher: inout Hasher) {
-        hasher.combine(path.lexicallyNormalized().string)
+        hasher.combine(path.lexicallyNormalized())
     }
 }
 
 extension XcodeProject: Equatable {
     public static func == (lhs: XcodeProject, rhs: XcodeProject) -> Bool {
-        lhs.path == rhs.path
+        lhs.path.lexicallyNormalized() == rhs.path.lexicallyNormalized()
     }
 }

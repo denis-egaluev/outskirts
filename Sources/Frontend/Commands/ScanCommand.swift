@@ -7,12 +7,9 @@ import Shared
 import SourceGraph
 import SystemPackage
 
-struct ScanCommand: ParsableCommand {
-    static let configuration = CommandConfiguration(
-        commandName: "scan",
-        abstract: "Scan for unused code"
-    )
-
+/// The arguments of the scan command, which `fix` takes too. `fix` cannot take the scan command itself as an option
+/// group: ArgumentParser would then name both commands in its usage errors, 'outskirts scan fix --help'.
+struct ScanArguments: ParsableArguments {
     @Argument(help: "Arguments following '--' will be passed to the underlying build tool, which is either 'swift build' or 'xcodebuild' depending on your project")
     var buildArguments: [String] = defaultConfiguration.$buildArguments.defaultValue
 
@@ -49,6 +46,58 @@ struct ScanCommand: ParsableCommand {
         if let maxResults = resultsOptions.maxResults, maxResults < 1 {
             throw ValidationError("'--max-results' must be at least 1")
         }
+    }
+}
+
+struct ScanCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "scan",
+        abstract: "Scan for unused code"
+    )
+
+    @OptionGroup
+    var arguments: ScanArguments
+
+    init() {}
+
+    init(arguments: ScanArguments) {
+        self.arguments = arguments
+    }
+
+    var buildArguments: [String] {
+        arguments.buildArguments
+    }
+
+    var projectOptions: ProjectOptions {
+        arguments.projectOptions
+    }
+
+    var buildOptions: BuildOptions {
+        arguments.buildOptions
+    }
+
+    var analysisOptions: AnalysisOptions {
+        arguments.analysisOptions
+    }
+
+    var retentionOptions: RetentionOptions {
+        arguments.retentionOptions
+    }
+
+    var resultsOptions: ResultsOptions {
+        arguments.resultsOptions
+    }
+
+    var baselineOptions: BaselineOptions {
+        arguments.baselineOptions
+    }
+
+    var localizedStringOptions: LocalizedStringOptions {
+        arguments.localizedStringOptions
+    }
+
+    var miscellaneousOptions: MiscellaneousOptions {
+        arguments.miscellaneousOptions
     }
 
     /// Applies the options given on the command line to a configuration that holds the values of the configuration file.
@@ -184,7 +233,7 @@ struct ScanCommand: ParsableCommand {
         let filteredResults = try outputFilter.filter(scanOutput.results, with: prepared.baseline)
         try writeBaselines(configuration: configuration, outputFilter: outputFilter, filteredResults: filteredResults, baseline: prepared.baseline, logger: logger)
 
-        let reportedResults = try ChangedSinceFilter(configuration: configuration, shell: prepared.shell, logger: logger).filter(filteredResults)
+        let reportedResults = try ChangedSinceFilter(configuration: configuration, logger: logger).filter(filteredResults)
         try outputResults(reportedResults, configuration: configuration, logger: logger)
 
         logger.endInterval(interval)
@@ -289,7 +338,11 @@ struct ScanCommand: ParsableCommand {
 
         let formattedOutput = try formatter.format(reportedResults, colored: colored)
 
-        if let output = formattedOutput, Self.shouldPrintToStdout(configuration: configuration, resultCount: reportedResults.count) {
+        if let output = formattedOutput, Self.shouldPrintToStdout(
+            configuration: configuration,
+            resultCount: reportedResults.count,
+            stdoutRequested: resultsOptions.skipStdoutResults == false
+        ) {
             if outputFormat.supportsAuxiliaryOutput {
                 logger.info("", canQuiet: true)
             }
@@ -326,10 +379,14 @@ struct ScanCommand: ParsableCommand {
     }
 
     /// With `--quiet`, stdout stays empty when there is nothing to report, and the report goes to
-    /// the `--write-results` file only.
-    static func shouldPrintToStdout(configuration: Configuration, resultCount: Int) -> Bool {
+    /// the `--write-results` file only. An explicit `--no-skip-stdout-results` on the command line (`stdoutRequested`)
+    /// overrides `--quiet`: the report, empty or not, is printed to stdout, and also written to `--write-results`.
+    static func shouldPrintToStdout(configuration: Configuration, resultCount: Int, stdoutRequested: Bool = false) -> Bool {
         if configuration.skipStdoutResults {
             return false
+        }
+        if stdoutRequested {
+            return true
         }
         if configuration.quiet, configuration.writeResults != nil || resultCount == 0 {
             return false

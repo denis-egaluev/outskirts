@@ -11,7 +11,7 @@ import XCTest
 final class SourceFileCollectorStoreTest: FixtureSourceGraphTestCase {
     private func collect(
         excludeTargets: [String] = [],
-        excludedTestTargets: Set<String> = [],
+        excludedModules: Set<String> = [],
         indexExclude: [String] = []
     ) throws -> (sourceFiles: [SourceFile: [IndexUnit]], unreadableUnits: [String]) {
         let configuration = Configuration()
@@ -20,7 +20,8 @@ final class SourceFileCollectorStoreTest: FixtureSourceGraphTestCase {
         configuration.buildFilenameMatchers()
         return try SourceFileCollector(
             indexStorePaths: Self.plan.indexStorePaths,
-            excludedTestTargets: excludedTestTargets,
+            excludedModules: excludedModules,
+            scanInputs: ScanInputs(sourceFiles: nil, resources: []),
             logger: Self.logger.contextualized(with: "test"),
             configuration: configuration
         ).collect()
@@ -38,9 +39,9 @@ final class SourceFileCollectorStoreTest: FixtureSourceGraphTestCase {
         XCTAssertEqual(collected.unreadableUnits, [])
     }
 
-    func testExcludedTargetsAndExcludedTestTargetsAreDropped() throws {
+    func testExcludedTargetsAndExcludedModulesAreDropped() throws {
         let all = try collect().sourceFiles
-        let collected = try collect(excludeTargets: ["UnusedImportFixtureA"], excludedTestTargets: ["UnusedImportFixtureB"])
+        let collected = try collect(excludeTargets: ["UnusedImportFixtureA"], excludedModules: ["UnusedImportFixtureB"])
 
         XCTAssertEqual(files(ofModule: "UnusedImportFixtureA", in: collected.sourceFiles), [])
         XCTAssertEqual(files(ofModule: "UnusedImportFixtureB", in: collected.sourceFiles), [])

@@ -17,6 +17,25 @@ final class UnusedParameterTest: XCTestCase {
         assertUnused(label: "param", name: "param", in: "myFunc3(param:)")
     }
 
+    func testShadowedByOneOfMultipleTrailingClosures() {
+        analyze()
+        assertUsed(label: "param", name: "param", in: "usedInLaterClosure(param:)")
+        assertUsed(label: "param", name: "param", in: "usedAfterClosureArgument(param:)")
+        assertUnused(label: "param", name: "param", in: "shadowedInEveryClosure(param:)")
+    }
+
+    func testUsedInNestedFunctionDefaultValue() {
+        analyze()
+        assertUsed(label: "param", name: "param", in: "myFunc(param:)")
+        assertUnused(label: "param", name: "param", in: "unusedOuter(param:)")
+    }
+
+    func testUsedInLocalVariableAttribute() {
+        analyze()
+        assertUsed(label: "param", name: "param", in: "myFunc(param:)")
+        assertUnused(label: "param", name: "param", in: "unusedParam(param:)")
+    }
+
     func testShadowedAfterUse() {
         analyze()
         assertUsed(label: "param", name: "param", in: "myFunc(param:)")

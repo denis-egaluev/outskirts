@@ -19,6 +19,7 @@ final class XCStringsIndexer {
 
     private let files: Set<FilePath>
     private let modulesByFile: [FilePath: Set<String>]
+    private let interfaceBuilderFiles: Set<FilePath>
     private let graph: SourceGraphMutex
     private let logger: ContextualLogger
     private let configuration: Configuration
@@ -26,12 +27,14 @@ final class XCStringsIndexer {
     required init(
         files: Set<FilePath>,
         modulesByFile: [FilePath: Set<String>] = [:],
+        interfaceBuilderFiles: Set<FilePath> = [],
         graph: SourceGraphMutex,
         logger: ContextualLogger,
         configuration: Configuration
     ) {
         self.files = files
         self.modulesByFile = modulesByFile
+        self.interfaceBuilderFiles = interfaceBuilderFiles
         self.graph = graph
         self.logger = logger.contextualized(with: "xcstrings")
         self.configuration = configuration
@@ -44,11 +47,27 @@ final class XCStringsIndexer {
         excludedFiles.forEach { self.logger.debug("Excluding \($0.string)") }
 
         let catalogMatchers = configuration.localizedStringCatalogExcludeMatchers
-        let includedFiles = indexedFiles.filter { path in
-            guard catalogMatchers.anyMatch(filename: path.string) else { return true }
+        // The catalog of a storyboard or XIB has its name and lies in its folder, or next to its `.lproj` folder; its
+        // keys are read by Interface Builder, not by Swift source.
+        let interfaceBuilderCatalogs = Set(interfaceBuilderFiles.compactMap { file -> FilePath? in
+            guard let stem = file.stem else { return nil }
 
-            self.logger.debug("Excluding catalog \(path.string)")
-            return false
+            var folder = file.removingLastComponent()
+            if folder.extension == "lproj" {
+                folder = folder.removingLastComponent()
+            }
+            return folder.appending("\(stem).xcstrings")
+        })
+        let includedFiles = indexedFiles.filter { path in
+            if catalogMatchers.anyMatch(filename: path.string) {
+                self.logger.debug("Excluding catalog \(path.string)")
+                return false
+            }
+            if interfaceBuilderCatalogs.contains(path) {
+                self.logger.debug("Excluding catalog \(path.string) of an Interface Builder file")
+                return false
+            }
+            return true
         }
 
         try JobPool(jobs: Array(includedFiles)).forEach { [graph, logger, modulesByFile, projectRoot = configuration.projectRoot] path in

@@ -6,7 +6,7 @@ import Shared
 final class ResultBuilderRetainer: GraphOnlyMutator {
     private let graph: SourceGraph
     /// Names the compiler calls implicitly (SE-0289, SE-0348). buildBlock may have any arity.
-    private let resultBuilderMethods = Set<String>([
+    private static let resultBuilderMethods = Set<String>([
         "buildExpression(_:)",
         "buildOptional(_:)",
         "buildEither(first:)",
@@ -25,14 +25,14 @@ final class ResultBuilderRetainer: GraphOnlyMutator {
     func mutate() {
         for decl in graph.declarations(ofKinds: Declaration.Kind.toplevelAttributableKind) where decl.attributes.contains(where: { $0.name == "resultBuilder" }) {
             for childDecl in decl.declarations {
-                if isResultBuilderMethod(childDecl.name) {
+                if Self.isResultBuilderMethod(childDecl.name) {
                     graph.markRetained(childDecl, reason: RetentionReason(Self.self, "result builder method"))
                 }
             }
         }
     }
 
-    private func isResultBuilderMethod(_ name: String) -> Bool {
+    static func isResultBuilderMethod(_ name: String) -> Bool {
         resultBuilderMethods.contains(name) || name.hasPrefix("buildBlock(")
     }
 }

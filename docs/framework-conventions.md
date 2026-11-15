@@ -197,7 +197,7 @@ If `Codable` conformance is declared by a protocol in an external module not sca
 
 ## Equatable and Hashable
 
-Swift synthesizes additional code for `Equatable` and `Hashable` types that is not visible to outskirts and can result in false positives for properties not directly referenced from non-synthesized code. If your project contains many such types, retain all properties on `Equatable` types with [`--retain-equatable-properties`](options.md), or all properties on `Hashable` types with [`--retain-hashable-properties`](options.md). The `Equatable` option also retains properties on `Hashable` types, because `Hashable` refines `Equatable`.
+Swift synthesizes additional code for `Equatable` and `Hashable` types that is not visible to outskirts and can result in false positives for properties not directly referenced from non-synthesized code. If your project contains many such types, retain all properties on `Equatable` types with [`--retain-equatable-properties`](options.md), or all properties on `Hashable` types with [`--retain-hashable-properties`](options.md). The `Equatable` option also retains properties on `Hashable` types, because `Hashable` refines `Equatable`; likewise for `Comparable` types and for types conforming to a protocol of the project that refines `Equatable` or `Hashable`.
 
 Properties can also be read implicitly through reflection, when a value is described by `print`, `debugPrint`, `String(describing:)`, `String(reflecting:)` or string interpolation (structs that do not provide their own description), or by `dump` (structs and classes). Use [`--retain-synthesized-uses`](options.md) to retain the stored properties of such types (see [Synthesized uses](#synthesized-uses)).
 

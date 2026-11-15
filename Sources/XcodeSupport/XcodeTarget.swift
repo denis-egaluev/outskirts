@@ -5,7 +5,7 @@ import SystemPackage
 import XcodeProj
 
 public final class XcodeTarget {
-    let project: XcodeProject
+    public let project: XcodeProject
 
     private let target: PBXTarget
     private let logger: Logger
@@ -27,18 +27,19 @@ public final class XcodeTarget {
     }
 
     public func identifyFiles() throws {
-        let groupFiles = try synchronizedGroupFiles()
+        let groupFiles = synchronizedGroupFiles()
         try identifyFiles(in: groupFiles)
         swiftSourceFiles = groupFiles.filter { $0.extension?.lowercased() == "swift" }
 
-        let sourcesBuildPhases = project.xcodeProject.pbxproj.sourcesBuildPhases
-        let resourcesBuildPhases = project.xcodeProject.pbxproj.resourcesBuildPhases
+        // Resolved once per kind of build phase, to warn once about a file element that cannot be resolved.
+        let sourceFiles = buildPhaseFiles(in: project.xcodeProject.pbxproj.sourcesBuildPhases)
+        let resourceFiles = buildPhaseFiles(in: project.xcodeProject.pbxproj.resourcesBuildPhases)
 
-        swiftSourceFiles.formUnion(try swiftFiles(in: sourcesBuildPhases))
-        try identifyFiles(kind: .xcDataModel, in: sourcesBuildPhases)
-        try identifyFiles(kind: .xcMappingModel, in: sourcesBuildPhases)
-        try identifyFiles(kind: .interfaceBuilder, in: resourcesBuildPhases)
-        try identifyFiles(kind: .xcStrings, in: resourcesBuildPhases)
+        swiftSourceFiles.formUnion(sourceFiles.filter { $0.extension?.lowercased() == "swift" })
+        identifyFiles(kind: .xcDataModel, in: sourceFiles)
+        identifyFiles(kind: .xcMappingModel, in: sourceFiles)
+        identifyFiles(kind: .interfaceBuilder, in: resourceFiles)
+        identifyFiles(kind: .xcStrings, in: resourceFiles)
         try identifyInfoPlistFiles()
         files = files.mapValues { existingFiles(in: $0) { logger.warn($0) } }
     }
@@ -70,19 +71,41 @@ public final class XcodeTarget {
     }
 
     /// The SDK names of the platforms the target supports in its configurations: `SUPPORTED_PLATFORMS`, else
-    /// `SDKROOT`, of the target settings, else of the project ones. Empty when an `.xcconfig` file sets them.
+    /// `SDKROOT`, of the target settings, else of the project ones. `$(inherited)` stands for the value of the project
+    /// settings, else for the SDK of the configuration, as the default of `SUPPORTED_PLATFORMS` is the platform of the
+    /// SDK. Empty when an `.xcconfig` file sets them.
     public var supportedSDKs: Set<String> {
         let configurations = target.buildConfigurationList?.buildConfigurations ?? []
 
         return configurations.flatMapSet { configuration -> Set<String> in
             let levels = [configuration.buildSettings, projectConfiguration(named: configuration.name)?.buildSettings ?? [:]]
-            let value = levels.lazy.compactMap { $0["SUPPORTED_PLATFORMS"] ?? $0["SDKROOT"] }.first
-            let names: [String] = switch value {
-            case let .string(string): string.split(separator: " ").map(String.init)
-            case let .array(values): values
-            case nil: []
-            }
-            return Set(names.filter { !$0.contains("$") })
+            return Set(Self.supportedSDKs(in: levels))
+        }
+    }
+
+    /// The supported SDK names of the first of these levels of build settings, from the target to the project, that
+    /// sets them.
+    static func supportedSDKs(in levels: [[String: BuildSetting]]) -> [String] {
+        guard let index = levels.firstIndex(where: { ($0["SUPPORTED_PLATFORMS"] ?? $0["SDKROOT"]) != nil }) else { return [] }
+
+        let level = levels[index]
+        let names = (level["SUPPORTED_PLATFORMS"] ?? level["SDKROOT"]).map(Self.names) ?? []
+
+        return names.flatMap { name -> [String] in
+            guard name == "$(inherited)" || name == "${inherited}" else { return name.contains("$") ? [] : [name] }
+
+            let inherited = supportedSDKs(in: Array(levels[(index + 1)...]))
+            guard inherited.isEmpty else { return inherited }
+
+            let sdk = levels[index...].lazy.compactMap { $0["SDKROOT"] }.first.map(Self.names) ?? []
+            return sdk.filter { !$0.contains("$") }
+        }
+    }
+
+    private static func names(_ setting: BuildSetting) -> [String] {
+        switch setting {
+        case let .string(string): string.split(separator: " ").map(String.init)
+        case let .array(values): values
         }
     }
 
@@ -119,13 +142,10 @@ public final class XcodeTarget {
 
     /// Files of the file system synchronized groups (Xcode 16+) belonging to this target, minus the files the
     /// target is excluded from via `membershipExceptions`.
-    private func synchronizedGroupFiles() throws -> Set<FilePath> {
-        let sourceRoot = project.sourceRoot.lexicallyNormalized()
+    private func synchronizedGroupFiles() -> Set<FilePath> {
+        (target.fileSystemSynchronizedGroups ?? []).flatMapSet { group in
+            guard let groupPath = project.fileElements.path(of: group, warn: { logger.warn($0) }) else { return [] }
 
-        return try (target.fileSystemSynchronizedGroups ?? []).flatMapSet { group in
-            guard let stringPath = try group.fullPath(sourceRoot: sourceRoot.string) else { return [] }
-
-            let groupPath = FilePath(stringPath).lexicallyNormalized()
             let exceptions = (group.exceptions ?? [])
                 .compactMap { $0 as? PBXFileSystemSynchronizedBuildFileExceptionSet }
                 .filter { $0.target === target }
@@ -138,34 +158,20 @@ public final class XcodeTarget {
         }
     }
 
-    private func swiftFiles(in buildPhases: [PBXBuildPhase]) throws -> Set<FilePath> {
-        let sourceRoot = project.sourceRoot.lexicallyNormalized()
+    /// The files of the build phases of the target, each variant of a variant group included.
+    private func buildPhaseFiles(in buildPhases: [PBXBuildPhase]) -> Set<FilePath> {
+        buildPhases.filter { target.buildPhases.contains($0) }.flatMapSet {
+            ($0.files ?? []).flatMapSet { buildFile -> Set<FilePath> in
+                guard let file = buildFile.file else { return [] }
 
-        return try buildPhases.filter { target.buildPhases.contains($0) }.flatMapSet {
-            try ($0.files ?? []).compactMapSet {
-                guard let stringPath = try $0.file?.fullPath(sourceRoot: sourceRoot.string) else { return nil }
-
-                let path = FilePath(stringPath).lexicallyNormalized()
-                return path.extension?.lowercased() == "swift" ? path : nil
+                return Set(project.fileElements.filePaths(of: file, warn: { logger.warn($0) }))
             }
         }
     }
 
-    private func identifyFiles(kind: ProjectFileKind, in buildPhases: [PBXBuildPhase]) throws {
-        let targetPhases = buildPhases.filter { target.buildPhases.contains($0) }
-        let sourceRoot = project.sourceRoot.lexicallyNormalized()
-
-        let foundFiles = try targetPhases.flatMapSet {
-            try ($0.files ?? []).compactMapSet {
-                if let stringPath = try $0.file?.fullPath(sourceRoot: sourceRoot.string) {
-                    let path = FilePath(stringPath)
-                    if let ext = path.extension, kind.extensions.contains(ext.lowercased()) {
-                        return path
-                    }
-                }
-
-                return nil
-            }
+    private func identifyFiles(kind: ProjectFileKind, in buildPhaseFiles: Set<FilePath>) {
+        let foundFiles = buildPhaseFiles.filter { path in
+            path.extension.map { kind.extensions.contains($0.lowercased()) } ?? false
         }
         files[kind, default: []].formUnion(foundFiles)
     }
@@ -322,14 +328,16 @@ public final class XcodeTarget {
     }
 }
 
+/// A target is identified by its project and name: projects of a workspace may have targets of the same name.
 extension XcodeTarget: Hashable {
     public func hash(into hasher: inout Hasher) {
+        hasher.combine(project)
         hasher.combine(target.name)
     }
 }
 
 extension XcodeTarget: Equatable {
     public static func == (lhs: XcodeTarget, rhs: XcodeTarget) -> Bool {
-        lhs.name == rhs.name
+        lhs.project == rhs.project && lhs.name == rhs.name
     }
 }

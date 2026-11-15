@@ -33,6 +33,26 @@ final class DerivedDataIndexStoreTest: XCTestCase {
         XCTAssertEqual(try DerivedDataIndexStore.resolve(derivedDataPath: FilePath(root.path).appending("DD")), store)
     }
 
+    func testPrefersTheStoreHoldingUnitsOverAnEmptyOne() throws {
+        _ = try makeDirectory("DD/Index.noindex/DataStore")
+        let store = try makeDirectory("DD/Index/DataStore")
+        _ = try makeDirectory("DD/Index/DataStore/v5/units/unit-a")
+
+        XCTAssertEqual(try DerivedDataIndexStore.resolve(derivedDataPath: FilePath(root.path).appending("DD")), store)
+    }
+
+    func testFileInsteadOfDirectoryThrowsANotADirectoryError() throws {
+        let file = FilePath(root.path).appending("DD")
+        XCTAssertTrue(FileManager.default.createFile(atPath: file.string, contents: Data()))
+
+        XCTAssertThrowsError(try DerivedDataIndexStore.resolve(derivedDataPath: file)) { error in
+            guard case let PeripheryError.derivedDataPathNotADirectory(path) = error else { return XCTFail("\(error)") }
+
+            XCTAssertEqual(path, file.string)
+            XCTAssertTrue(error.localizedDescription.contains("not a directory"))
+        }
+    }
+
     func testMissingDirectoryThrowsANamedError() {
         let missing = FilePath(root.path).appending("Missing")
 

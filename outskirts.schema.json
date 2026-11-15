@@ -22,7 +22,7 @@
       "default": []
     },
     "exclude_targets": {
-      "description": "Targets to exclude from indexing.",
+      "description": "Targets to exclude from indexing, by target or module name. A name that matches no target of the project is reported.",
       "type": [
         "array",
         "string"
@@ -386,7 +386,7 @@
       "default": false
     },
     "clean_build": {
-      "description": "Remove existing build artifacts before building.",
+      "description": "Remove existing build artifacts before building. Has no effect, with a warning, when the build is skipped, including with `index_store_path` or `derived_data_path`.",
       "type": "boolean",
       "default": false
     },

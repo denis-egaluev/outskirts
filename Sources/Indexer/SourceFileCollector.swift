@@ -18,25 +18,31 @@ public struct SourceFileCollector {
     }
 
     private let indexStorePaths: Set<FilePath>
-    private let excludedTestTargets: Set<String>
+    private let excludedModules: Set<String>
+    private let scanInputs: ScanInputs
     private let logger: ContextualLogger
     private let configuration: Configuration
 
+    /// `excludedModules`: the modules of the targets the driver leaves out, which index units name; the names of
+    /// `exclude_targets` are left out as module names too. `scanInputs`: with `index_built_from`, only the changes
+    /// to these files can make the results out of date.
     public init(
         indexStorePaths: Set<FilePath>,
-        excludedTestTargets: Set<String>,
+        excludedModules: Set<String>,
+        scanInputs: ScanInputs,
         logger: ContextualLogger,
         configuration: Configuration
     ) {
         self.indexStorePaths = indexStorePaths
-        self.excludedTestTargets = excludedTestTargets
+        self.excludedModules = excludedModules
+        self.scanInputs = scanInputs
         self.logger = logger
         self.configuration = configuration
     }
 
     /// The source files to index, and the names of the index store units that cannot be read.
     public func collect() throws -> (sourceFiles: [SourceFile: [IndexUnit]], unreadableUnits: [String]) {
-        let excludedTargets = excludedTestTargets.union(configuration.excludeTargets)
+        let excludedTargets = excludedModules.union(configuration.excludeTargets)
         let currentFilePath = FilePath.current
         let logger = logger
         // `Configuration` is not `Sendable`: the jobs only read it, and nothing mutates it while they run.
@@ -95,7 +101,7 @@ public struct SourceFileCollector {
                 return [StoreUnits(path: indexStorePath, collected: collected, unreadable: unreadable, hasIgnoredUnit: hasIgnoredUnit, missing: missing, mainFiles: mainFiles)]
             }
         let unreadableUnits = storeResults.reduce(into: [FilePath: Set<String>]()) { $0[$1.path] = Set($1.unreadable) }
-        if let warning = try Self.unreadableUnitsWarning(unreadableUnits, relativeTo: currentFilePath, strict: configuration.strictIndex) {
+        if let warning = try Self.unreadableUnitsWarning(unreadableUnits, relativeTo: currentFilePath, buildSkipped: configuration.skipBuild, strict: configuration.strictIndex) {
             logger.warn(warning)
         }
 
@@ -146,7 +152,7 @@ public struct SourceFileCollector {
             }
         }
 
-        if let warning = try Self.outdatedIndexWarning(outdatedFiles, relativeTo: currentFilePath, strict: configuration.strictIndex) {
+        if let warning = try Self.outdatedIndexWarning(outdatedFiles, relativeTo: currentFilePath, buildSkipped: configuration.skipBuild, strict: configuration.strictIndex) {
             logger.warn(warning)
         }
 
@@ -215,7 +221,7 @@ public struct SourceFileCollector {
     }
 
     /// A single warning for the scan, naming each index store with its number of outdated files and a few of them.
-    static func outdatedIndexWarning(_ outdatedFiles: [FilePath: Set<FilePath>], relativeTo base: FilePath, examples: Int = 3) -> String? {
+    static func outdatedIndexWarning(_ outdatedFiles: [FilePath: Set<FilePath>], relativeTo base: FilePath, buildSkipped: Bool = false, examples: Int = 3) -> String? {
         let stores = outdatedFiles
             .filter { !$0.value.isEmpty }
             .sorted { ($1.value.count, $0.key.string) < ($0.value.count, $1.key.string) }
@@ -239,12 +245,12 @@ public struct SourceFileCollector {
         }
         let pronoun = count == 1 ? "it" : "them"
 
-        return "\(subject)\(location). Results in \(pronoun) may be at the wrong lines or missing: rebuild the project before scanning, or pass '--clean-build' to start from an empty index store."
+        return "\(subject)\(location). Results in \(pronoun) may be at the wrong lines or missing: \(remedy(buildSkipped: buildSkipped))"
     }
 
     /// The warning to print for the outdated files, if any; with `strict_index`, the scan fails instead.
-    static func outdatedIndexWarning(_ outdatedFiles: [FilePath: Set<FilePath>], relativeTo base: FilePath, strict: Bool) throws -> String? {
-        guard let warning = outdatedIndexWarning(outdatedFiles, relativeTo: base) else { return nil }
+    static func outdatedIndexWarning(_ outdatedFiles: [FilePath: Set<FilePath>], relativeTo base: FilePath, buildSkipped: Bool = false, strict: Bool) throws -> String? {
+        guard let warning = outdatedIndexWarning(outdatedFiles, relativeTo: base, buildSkipped: buildSkipped) else { return nil }
 
         if strict {
             throw PeripheryError.outdatedIndexData(message: warning + " Failing as '--strict-index' is set.")
@@ -260,6 +266,7 @@ public struct SourceFileCollector {
         unindexed: Set<FilePath>,
         revision: String,
         relativeTo base: FilePath,
+        buildSkipped: Bool = false,
         examples: Int = 3
     ) -> String? {
         var groups = changedFiles
@@ -284,7 +291,7 @@ public struct SourceFileCollector {
             ": " + groups.map { "\($0.files.count) \($0.label) (\(list($0.files)))" }.joined(separator: ", ")
         }
 
-        return "\(subject) since \(revision), the revision the index was built from\(location). Results may be at the wrong lines or missing: rebuild the project before scanning, or pass '--clean-build' to start from an empty index store."
+        return "\(subject) since \(revision), the revision the index was built from\(location). Results may be at the wrong lines or missing: \(remedy(buildSkipped: buildSkipped))"
     }
 
     /// The warning to print for the files changed since the revision, if any; with `strict_index`, the scan fails instead.
@@ -293,9 +300,10 @@ public struct SourceFileCollector {
         unindexed: Set<FilePath>,
         revision: String,
         relativeTo base: FilePath,
+        buildSkipped: Bool = false,
         strict: Bool
     ) throws -> String? {
-        guard let warning = changedSinceRevisionWarning(changedFiles, unindexed: unindexed, revision: revision, relativeTo: base) else { return nil }
+        guard let warning = changedSinceRevisionWarning(changedFiles, unindexed: unindexed, revision: revision, relativeTo: base, buildSkipped: buildSkipped) else { return nil }
 
         if strict {
             throw PeripheryError.outdatedIndexData(message: warning + " Failing as '--strict-index' is set.")
@@ -307,7 +315,7 @@ public struct SourceFileCollector {
     /// A single warning for the scan, naming each index store with its number of unreadable units and a few of them.
     /// The source files these units describe are missing from the scan, so their declarations are not indexed and
     /// whatever only they reference is reported as unused.
-    static func unreadableUnitsWarning(_ unreadableUnits: [FilePath: Set<String>], relativeTo base: FilePath, examples: Int = 3) -> String? {
+    static func unreadableUnitsWarning(_ unreadableUnits: [FilePath: Set<String>], relativeTo base: FilePath, buildSkipped: Bool = false, examples: Int = 3) -> String? {
         let stores = unreadableUnits
             .filter { !$0.value.isEmpty }
             .sorted { ($1.value.count, $0.key.string) < ($0.value.count, $1.key.string) }
@@ -323,12 +331,12 @@ public struct SourceFileCollector {
         }
         let files = count == 1 ? "The source file it describes is" : "The source files they describe are"
 
-        return "\(subject)\(location). \(files) left out of the scan, so declarations used only there may be reported as unused: rebuild the project before scanning, or pass '--clean-build' to start from an empty index store."
+        return "\(subject)\(location). \(files) left out of the scan, so declarations used only there may be reported as unused: \(remedy(buildSkipped: buildSkipped))"
     }
 
     /// The warning to print for the unreadable units, if any; with `strict_index`, the scan fails instead.
-    static func unreadableUnitsWarning(_ unreadableUnits: [FilePath: Set<String>], relativeTo base: FilePath, strict: Bool) throws -> String? {
-        guard let warning = unreadableUnitsWarning(unreadableUnits, relativeTo: base) else { return nil }
+    static func unreadableUnitsWarning(_ unreadableUnits: [FilePath: Set<String>], relativeTo base: FilePath, buildSkipped: Bool = false, strict: Bool) throws -> String? {
+        guard let warning = unreadableUnitsWarning(unreadableUnits, relativeTo: base, buildSkipped: buildSkipped) else { return nil }
 
         if strict {
             throw PeripheryError.unreadableIndexUnits(message: warning + " Failing as '--strict-index' is set.")
@@ -357,6 +365,7 @@ public struct SourceFileCollector {
         let unindexed = freshness.unindexedChanges(
             indexed: Set(storeResults.flatMap(\.mainFiles)),
             in: projectRoot,
+            inputs: scanInputs,
             isExcluded: configuration.isIndexExcluded
         )
         logger.debug("index freshness: git \(freshness.revision), \(freshness.changed.count) files changed, \(filesJudgedByDate) files outside the repository checked by date")
@@ -366,10 +375,19 @@ public struct SourceFileCollector {
             unindexed: unindexed,
             revision: freshness.revision,
             relativeTo: FilePath.current,
+            buildSkipped: configuration.skipBuild,
             strict: configuration.strictIndex
         ) {
             logger.warn(warning)
         }
+    }
+
+    /// How to bring the index up to date. `--clean-build` has no effect when the build is skipped, e.g. with
+    /// `--index-store-path` or `--derived-data-path`: the index store comes from a build outskirts does not run.
+    static func remedy(buildSkipped: Bool) -> String {
+        buildSkipped
+            ? "rebuild the index store before scanning, e.g. by building the project again."
+            : "rebuild the project before scanning, or pass '--clean-build' to start from an empty index store."
     }
 
     private static func display(_ path: FilePath, relativeTo base: FilePath) -> String {

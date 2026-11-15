@@ -6,7 +6,7 @@ import SystemPackage
 
 public final class Xcodebuild {
     private let shell: Shell
-    private let logger: Logger
+    let logger: Logger
     /// The directory holding the DerivedData folders; `nil` uses the outskirts cache directory.
     public let cacheDirectory: FilePath?
 
@@ -36,11 +36,17 @@ public final class Xcodebuild {
     }
 
     public func ensureConfigured() throws {
+        // Runs the command even when the version is cached: this is the check that xcodebuild works.
+        let version: String
         do {
-            try logger.debug(version())
-        } catch {
+            version = try shell.exec(["xcodebuild", "-version"]).trimmed
+        } catch PeripheryError.executableNotFound {
+            throw PeripheryError.xcodebuildNotConfigured
+        } catch let PeripheryError.shellCommandFailed(_, _, output) where output.contains("requires Xcode") {
             throw PeripheryError.xcodebuildNotConfigured
         }
+        Self.cachedVersion.withLock { $0 = version }
+        logger.debug(version)
     }
 
     @discardableResult
@@ -81,9 +87,9 @@ public final class Xcodebuild {
         xcodeDerivedDataRoot: FilePath = Xcodebuild.defaultXcodeDerivedDataRoot
     ) throws -> FilePath {
         let derivedDataPath = try derivedDataPath(for: project, schemes: schemes, buildArguments: buildArguments)
-        let relativePaths = ["Index.noindex/DataStore", "Index/DataStore"]
+        let relativePaths = DerivedDataIndexStore.relativeStorePaths
         let pathsToTry = relativePaths.map { derivedDataPath.appending($0) }
-        if let path = pathsToTry.first(where: { $0.exists }) {
+        if let path = DerivedDataIndexStore.preferredStore(in: derivedDataPath) {
             return path
         }
 
@@ -243,13 +249,13 @@ public final class Xcodebuild {
         // of the key too, in the order given. Output and report options are deliberately not inputs: scans that differ
         // only by those share the same incremental build.
         var name = "DerivedData"
-        name += "-\(try version().djb2Hex)"
-        name += "-\(projectIdentifier.djb2Hex)"
+        name += "-\(try version().stableHashHex)"
+        name += "-\(projectIdentifier.stableHashHex)"
         if !schemes.isEmpty {
-            name += "-\(schemes.sorted().joined().djb2Hex)"
+            name += "-\(schemes.sorted().joined(separator: "\n").stableHashHex)"
         }
         if !buildArguments.isEmpty {
-            name += "-\(buildArguments.joined(separator: "\n").djb2Hex)"
+            name += "-\(buildArguments.joined(separator: "\n").stableHashHex)"
         }
         return try resolvedCacheDirectory().appending(name)
     }

@@ -45,7 +45,7 @@ The result annotations are:
 
 Excluding files from indexing means that the declarations and references they contain are not seen by outskirts, which behaves as if the files did not exist. A declaration used only from an excluded file is therefore reported as unused.
 
-- `--exclude-targets "TargetA" "TargetB"` (`exclude_targets`) excludes all source files of the given targets.
+- `--exclude-targets "TargetA" "TargetB"` (`exclude_targets`) excludes all source files of the given targets, named by target or module name: `My-Lib` and `My_Lib` both name a SwiftPM target `My-Lib`. A warning names each entry that matches no target of the project; such an entry still leaves out the index data of a module of that name.
 - `--exclude-tests` (`exclude_tests`) excludes all test targets.
 - `--index-exclude "file.swift" "path/*.swift"` (`index_exclude`) excludes individual source files. The patterns are added to the defaults, `**/*?.build/**/*` and `**/SourcePackages/checkouts/**`, which are always kept.
 

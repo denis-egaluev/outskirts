@@ -45,6 +45,10 @@ final class Scan {
             }
         }
 
+        if let warning = Self.ignoredCleanBuildWarning(configuration) {
+            logger.warn(warning)
+        }
+
         let driver = try setup(project)
 
         // Output configuration after project setup as the driver may alter it.
@@ -58,6 +62,21 @@ final class Scan {
         try analyze()
         explain()
         return Output(results: buildResults(), unprefixedRuntimeLocalizedStringKeyLocations: graph.unprefixedRuntimeLocalizedStringKeyLocations)
+    }
+
+    /// `--clean-build` cleans the build outskirts runs: it has no effect when the build is skipped, explicitly or as
+    /// implied by `--index-store-path` and `--derived-data-path`.
+    static func ignoredCleanBuildWarning(_ configuration: Configuration) -> String? {
+        guard configuration.cleanBuild, configuration.skipBuild else { return nil }
+
+        let reason = if !configuration.derivedDataPath.isEmpty {
+            "'--derived-data-path' skips the build"
+        } else if !configuration.indexStorePath.isEmpty {
+            "'--index-store-path' skips the build"
+        } else {
+            "'--skip-build' is set"
+        }
+        return "The '--clean-build' option has no effect as \(reason): rebuild the index store yourself to start from an empty one."
     }
 
     // MARK: - Private

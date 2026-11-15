@@ -134,6 +134,14 @@ class InformalGreeter: BaseGreeter {
 
 Unused parameters of protocols or classes defined in foreign modules (e.g. Foundation) are always ignored, since you do not have access to modify the base function declaration.
 
+### Imposed signatures
+
+Some functions cannot lose a parameter without breaking code that does not call them directly, so their unused parameters are ignored:
+
+- A function used as a value rather than called, e.g. passed as an argument (`values.map(transform)`), assigned (`let make = Factory.make`), or the target of a `#selector`. The overrides of such a method are covered too.
+- A Swift Testing `@Test` function, whose parameters receive the test arguments.
+- A method of a `@resultBuilder` type that the compiler calls implicitly (see [Result builders](framework-conventions.md#result-builders)).
+
 ### fatalError functions
 
 Unused parameters of functions that simply call `fatalError` are also ignored. Such functions are often unimplemented required initializers in subclasses.
@@ -694,7 +702,7 @@ A key without a literal prefix (e.g. a central helper such as `String(localized:
 
 ### Excluding catalogues
 
-Catalogues matching the [`--localized-string-catalog-exclude`](options.md) globs (`localized_string_catalog_exclude`) are not analysed. By default `**/InfoPlist.xcstrings` and `**/AppShortcuts.xcstrings` are excluded, since their keys are consumed by the system rather than referenced from Swift source. Setting the option replaces the default list, so include these patterns if you add your own:
+Catalogues matching the [`--localized-string-catalog-exclude`](options.md) globs (`localized_string_catalog_exclude`) are not analysed. By default `**/InfoPlist.xcstrings` and `**/AppShortcuts.xcstrings` are excluded, since their keys are consumed by the system rather than referenced from Swift source. The catalog of a storyboard or XIB, with its name, in its folder or next to its `.lproj` folder (`Main.xcstrings` next to `Main.storyboard` or `Base.lproj/Main.storyboard`), is not analysed either, since Interface Builder reads its keys. Only Swift source counts as a use: a key read only by Objective-C, Interface Builder or code that is not scanned is reported unused, so declare it with `localized_string_key_patterns` or exclude its catalog. Setting the option replaces the default list, so include these patterns if you add your own:
 
 ```yaml
 localized_string_catalog_exclude:
@@ -705,7 +713,7 @@ localized_string_catalog_exclude:
 
 ### Key patterns
 
-Keys built at runtime (e.g. `String(localized: String.LocalizationValue("quickChat.\(id)"))`) can be declared with [`--localized-string-key-patterns`](options.md) (`localized_string_key_patterns`). Each pattern is either a glob, where `*` matches any characters and `?` a single character, or a regular expression between slashes. Patterns must match the whole key, and catalogue keys matching any of them are considered used:
+Keys built at runtime (e.g. `String(localized: String.LocalizationValue("quickChat.\(id)"))`) can be declared with [`--localized-string-key-patterns`](options.md) (`localized_string_key_patterns`). Each pattern is either a glob, where `*` matches any characters and `?` a single character, line breaks included, or a regular expression between slashes, where `.` keeps its standard meaning and does not match a line break (use `[\s\S]` for that). Patterns must match the whole key, and catalogue keys matching any of them are considered used:
 
 ```yaml
 localized_string_key_patterns:

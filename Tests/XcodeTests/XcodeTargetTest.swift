@@ -54,6 +54,18 @@ final class XcodeTargetTest: XCTestCase {
         XCTAssertEqual(sdks("WatchWidgetExtension"), ["watchos"])
     }
 
+    func testSupportedSDKs_expandInheritedFromTheProjectElseTheSDK() {
+        let sdks = { (target: [String: String], project: [String: String]) in
+            XcodeTarget.supportedSDKs(in: [target.mapValues { .string($0) }, project.mapValues { .string($0) }])
+        }
+        let inherited = ["SUPPORTED_PLATFORMS": "$(inherited) xros xrsimulator"]
+
+        XCTAssertEqual(sdks(inherited, ["SUPPORTED_PLATFORMS": "macosx"]), ["macosx", "xros", "xrsimulator"])
+        XCTAssertEqual(sdks(inherited, ["SDKROOT": "iphoneos"]), ["iphoneos", "xros", "xrsimulator"])
+        XCTAssertEqual(sdks(inherited.merging(["SDKROOT": "appletvos"]) { $1 }, [:]), ["appletvos", "xros", "xrsimulator"])
+        XCTAssertEqual(sdks(["SUPPORTED_PLATFORMS": "${inherited} $(EXTRA)"], [:]), [])
+    }
+
     func testModuleName_followsTheProductNameAsACIdentifier() {
         let moduleName = { (name: String) in self.project.targets.first { $0.name == name }!.moduleName }
 

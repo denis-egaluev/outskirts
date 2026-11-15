@@ -84,7 +84,7 @@ See [Migrating from Periphery: What changed since Periphery 3.x](migrating-from-
 
 ### `--clean-build`
 
-Remove existing build artifacts before building.
+Remove existing build artifacts before building. Has no effect, with a warning, when the build is skipped, including with `index_store_path` or `derived_data_path`.
 
 Key `clean_build` · flag, `--no-clean-build` to switch off · default `false`.
 
@@ -119,6 +119,8 @@ Since 3.24.0.
 DerivedData directories (as passed to xcodebuild -derivedDataPath), relative to the project root, whose index stores are added to index_store_path; implies skip_build.
 
 Key `derived_data_path` · list of strings · default empty.
+
+See [Troubleshooting: Results in the wrong place or false positives in one file](troubleshooting.md#results-in-the-wrong-place-or-false-positives-in-one-file).
 
 ### `--strict-index`
 
@@ -164,7 +166,7 @@ Project configuration file for other build systems.
 
 Key `generic_project_config` · string · default none.
 
-See [Configuration: Paths](configuration.md#paths).
+See [Configuration: Paths](configuration.md#paths), [Troubleshooting: Index data restored from another checkout](troubleshooting.md#index-data-restored-from-another-checkout).
 
 ### `--cache-max-age-days`
 
@@ -186,7 +188,7 @@ See [Getting started: How a scan works](getting-started.md#how-a-scan-works), [R
 
 ### `--exclude-targets`
 
-Targets to exclude from indexing.
+Targets to exclude from indexing, by target or module name. A name that matches no target of the project is reported.
 
 Key `exclude_targets` · list of strings · default empty.
 
@@ -386,7 +388,7 @@ Key patterns (globs, or regular expressions between slashes) of keys used dynami
 
 Key `localized_string_key_patterns` · list of strings · default empty.
 
-See [Analysis: Key patterns](analysis.md#key-patterns), [Analysis: Keys built at runtime](analysis.md#keys-built-at-runtime), [Analysis: Literal matching](analysis.md#literal-matching), [Fixing unused String Catalog keys: Keys built at runtime](fix.md#keys-built-at-runtime).
+See [Analysis: Key patterns](analysis.md#key-patterns), [Analysis: Keys built at runtime](analysis.md#keys-built-at-runtime), [Analysis: Excluding catalogues](analysis.md#excluding-catalogues), [Analysis: Literal matching](analysis.md#literal-matching).
 
 ### `--localized-string-key-literal-match`
 

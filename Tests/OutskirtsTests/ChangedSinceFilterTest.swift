@@ -70,7 +70,7 @@ final class ChangedSinceFilterTest: XCTestCase {
         configuration.changedSince = ref
         configuration.changedLines = lines
 
-        return try ChangedSinceFilter(configuration: configuration, shell: shell, logger: logger)
+        return try ChangedSinceFilter(configuration: configuration, logger: logger)
             .filter(results)
             .map(\.declaration.name)
             .sorted()
@@ -119,6 +119,31 @@ final class ChangedSinceFilterTest: XCTestCase {
         XCTAssertEqual(try names(since: "HEAD", lines: true, sample), ["b3"])
     }
 
+    func testModeChangeAloneCountsAsChanged() throws {
+        try makeRepository()
+        let path = root.appendingPathComponent("Sources/B.swift").path
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
+        XCTAssertEqual(try names(since: "HEAD", sample), ["b3"])
+    }
+
+    func testIgnoresTheIndexAndRepositoryOfTheEnvironmentAndLeavesTheIndexUntouched() throws {
+        try makeRepository()
+        let index = root.appendingPathComponent(".git/index")
+        let before = try FileManager.default.attributesOfItem(atPath: index.path)[.modificationDate] as? Date
+        let contents = try Data(contentsOf: index)
+        // An index git refreshes on read: touching a tracked file makes its stat data stale.
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: 5)], ofItemAtPath: root.appendingPathComponent("Sources/B.swift").path)
+        let otherIndex = root.appendingPathComponent("other-index").path
+        setenv("GIT_INDEX_FILE", otherIndex, 1)
+        defer { unsetenv("GIT_INDEX_FILE") }
+
+        XCTAssertEqual(try names(since: "HEAD~1", sample), ["a2", "a5"])
+        XCTAssertEqual(try names(since: "HEAD~1", lines: true, sample), ["a5"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: otherIndex))
+        XCTAssertEqual(try Data(contentsOf: index), contents)
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: index.path)[.modificationDate] as? Date, before)
+    }
+
     func testRenamedFileIsMatchedByItsNewPath() throws {
         try makeRepository()
         try git("mv", "Sources/B.swift", "Sources/C.swift")
@@ -157,7 +182,7 @@ final class ChangedSinceFilterTest: XCTestCase {
         configuration.changedLines = true
 
         let results = [result("p11", in: "pkg/Sources/P.swift", line: 11), result("a5", in: "Sources/A.swift", line: 5)]
-        let kept = try ChangedSinceFilter(configuration: configuration, shell: shell, logger: logger).filter(results)
+        let kept = try ChangedSinceFilter(configuration: configuration, logger: logger).filter(results)
         XCTAssertEqual(kept.map(\.declaration.name), ["p11"])
     }
 

@@ -20,13 +20,37 @@ extension CommentCommand {
             // Only respect commands at the start of a comment (after the marker and whitespace).
             let prefixStart = comment.index(comment.startIndex, offsetBy: markerLength)
             let prefixBeforeCommand = String(comment[prefixStart ..< range.lowerBound])
-            guard prefixBeforeCommand.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+            guard prefixBeforeCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
 
             var rawCommand = String(comment[range.upperBound...]).replacingOccurrences(of: "*/", with: "").trimmed
-            // Anything after '-' in a comment command is ignored.
-            rawCommand = String(rawCommand.split(separator: "-").first ?? "").trimmed
+            rawCommand = stripTrailingComment(rawCommand)
             return CommentCommand.parse(rawCommand)
         } ?? []
+    }
+
+    /// Removes the trailing comment that starts at the first '-' outside a quoted value or an unquoted `key=value`.
+    static func stripTrailingComment(_ rawCommand: String) -> String {
+        var isQuoted = false
+        var isUnquotedValue = false
+
+        for index in rawCommand.indices {
+            let character = rawCommand[index]
+
+            if character == "\"" {
+                isQuoted.toggle()
+                isUnquotedValue = false
+            } else if isQuoted {
+                continue
+            } else if character == "=" {
+                isUnquotedValue = true
+            } else if character.isWhitespace {
+                isUnquotedValue = false
+            } else if character == "-", !isUnquotedValue {
+                return String(rawCommand[..<index]).trimmed
+            }
+        }
+
+        return rawCommand
     }
 
     static func parse(_ rawCommand: String) -> Self? {
@@ -35,8 +59,10 @@ extension CommentCommand {
         } else if rawCommand == "ignore:all" {
             return .ignoreAll
         } else if rawCommand.hasPrefix("ignore:parameters") {
-            guard let params = rawCommand.split(separator: " ").last?.split(separator: ",").map({ String($0).trimmed }) else { return nil }
-
+            let params = rawCommand.dropFirst("ignore:parameters".count)
+                .split(separator: ",")
+                .map { String($0).trimmed }
+                .filter { !$0.isEmpty }
             return .ignoreParameters(params)
         } else if rawCommand.hasPrefix("override") {
             let pattern = #/(?<key>\w+)="(?<value>[^"]*)"/#

@@ -37,6 +37,13 @@ open class SetupGuideHelpers {
         }
     }
 
+    /// No answer selects from no options: throws instead of prompting forever.
+    func ensureNotEmpty(_ options: [String]) throws {
+        guard options.isEmpty else { return }
+
+        throw PeripheryError.guidedSetupError(message: "There are no options to select from")
+    }
+
     func readAnswer() throws -> String {
         guard let line = readInput() else {
             print("")
@@ -47,6 +54,8 @@ open class SetupGuideHelpers {
     }
 
     public func select(single options: [String]) throws -> String {
+        try ensureNotEmpty(options)
+
         while true {
             display(options: options)
             print(logger.colorize("?", .boldYellow) + " Type the number for the option you wish to select")
@@ -59,6 +68,7 @@ open class SetupGuideHelpers {
                     return option
                 }
                 print(logger.colorize("\nInvalid option: \(strChoice)\n", .boldYellow))
+                continue
             }
 
             print(logger.colorize("\nInvalid input, expected a number.\n", .boldYellow))
@@ -66,6 +76,7 @@ open class SetupGuideHelpers {
     }
 
     public func select(multiple options: [String]) throws -> SetupSelection {
+        try ensureNotEmpty(options)
         let helpMsg = " Delimit choices with a single space, e.g: 1 2 3"
 
         while true {

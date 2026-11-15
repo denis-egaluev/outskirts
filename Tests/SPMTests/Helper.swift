@@ -11,3 +11,7 @@ var SPMProjectPath: FilePath {
         ProjectRootPath.appending("Tests/SPMTests/SPMProjectMacOS")
     }
 #endif
+
+var SPMHyphenatedProjectPath: FilePath {
+    ProjectRootPath.appending("Tests/SPMTests/SPMHyphenatedProject")
+}

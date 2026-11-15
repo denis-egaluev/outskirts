@@ -83,7 +83,7 @@ final class SPMStrictIndexCoverageTest: SPMSourceGraphTestCase {
         XCTAssertEqual(resultKeys(), expected)
     }
 
-    func testIndexWithoutTheTestTarget_failsNamingItAndItsPlatform() throws {
+    func testExternalIndexWithoutTheTestTarget_failsNamingItOnAnyPlatform() throws {
         Self.build(projectPath: SPMProjectPath)
         let partial = try store(XCTUnwrap(Self.plan.indexStorePaths.first), withoutModule: "Tests")
 
@@ -96,7 +96,7 @@ final class SPMStrictIndexCoverageTest: SPMSourceGraphTestCase {
                 return XCTFail("unexpected error \(error)")
             }
 
-            XCTAssertTrue(message.contains("no index data for target(s) 'Tests' on \(IndexPlatform.host)"), message)
+            XCTAssertTrue(message.contains("no index data for target(s) 'Tests' (index store"), message)
             XCTAssertFalse(message.contains("SPMProjectKit"), message)
         }
 

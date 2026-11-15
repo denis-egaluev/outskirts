@@ -2110,16 +2110,12 @@ final class RetentionTest: FixtureSourceGraphTestCase {
             retainPublic: true,
             retainEquatableProperties: true
         ) {
-            assertReferenced(.struct("FixtureStruct222")) {
-                self.assertNotReferenced(.functionConstructor("init(unused:)"))
-                self.assertReferenced(.varInstance("unused"))
-                self.assertNotAssignOnlyProperty(.varInstance("unused"))
-            }
-
-            assertReferenced(.struct("FixtureStruct223")) {
-                self.assertNotReferenced(.functionConstructor("init(unused:)"))
-                self.assertReferenced(.varInstance("unused"))
-                self.assertNotAssignOnlyProperty(.varInstance("unused"))
+            for name in ["FixtureStruct222", "FixtureStruct223", "FixtureStruct222Comparable", "FixtureStruct222Refining"] {
+                assertReferenced(.struct(name)) {
+                    self.assertNotReferenced(.functionConstructor("init(unused:)"))
+                    self.assertReferenced(.varInstance("unused"))
+                    self.assertNotAssignOnlyProperty(.varInstance("unused"))
+                }
             }
 
             assertReferenced(.class("FixtureClass222")) {

@@ -26,7 +26,7 @@ final class XCStringsKeyRemoverTest: XCTestCase {
     }
 
     private func removing(_ keys: Set<String>, from text: String) throws -> String {
-        try XCTUnwrap(String(validating: XCStringsKeyRemover.removing(keys, from: Array(text.utf8)), as: UTF8.self))
+        try XCTUnwrap(String(validating: XCStringsKeyRemover.removing(keys, from: Array(text.utf8)).bytes, as: UTF8.self))
     }
 
     private func assertRefused(_ keys: Set<String>, from text: String, _ expected: XCStringsKeyRemovalError, line: UInt = #line) {
@@ -92,10 +92,15 @@ final class XCStringsKeyRemoverTest: XCTestCase {
         XCTAssertEqual(try removing(["a"], from: "{ \"strings\" :\t{ \"a\" : true ,\n\"b\" : null } }"), "{ \"strings\" :\t{ \"b\" : null } }")
     }
 
+    func testByteOrderMarkIsKept() throws {
+        let bom = "\u{FEFF}"
+        XCTAssertEqual(try removing(["a"], from: bom + #"{"strings":{"a":{},"b":{}}}"#), bom + #"{"strings":{"b":{}}}"#)
+    }
+
     func testMalformedOrUnexpectedCatalogsAreRefused() {
         assertRefused(["a"], from: #"{"strings":{"a":{},}}"#, .malformedJSON(offset: 19))
         assertRefused(["a"], from: #"{"strings":{"a":{}}} x"#, .malformedJSON(offset: 21))
-        assertRefused(["a"], from: "\u{FEFF}" + #"{"strings":{"a":{}}}"#, .unexpectedStructure("the catalog is not a JSON object"))
+        assertRefused(["a"], from: #"["strings"]"#, .unexpectedStructure("the catalog is not a JSON object"))
         assertRefused(["a"], from: #"{"strings":[]}"#, .unexpectedStructure("the strings member is not a JSON object"))
         assertRefused(["a"], from: #"{"strings":{"a":{}},"strings":{}}"#, .duplicateKey("strings"))
         assertRefused(["a"], from: #"{"strings":{"a":01}}"#, .malformedJSON(offset: 17))

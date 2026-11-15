@@ -58,15 +58,11 @@ public extension String {
         return result
     }
 
-    /// http://www.cse.yorku.ca/~oz/hash.html
-    @inlinable var djb2: Int {
-        unicodeScalars
-            .map(\.value)
-            .reduce(5381) { ($0 << 5) &+ $0 &+ Int($1) }
-    }
-
-    @inlinable var djb2Hex: String {
-        String(format: "%02x", djb2)
+    /// 64-bit FNV-1a of the UTF-8 bytes, as 16 hexadecimal digits; unlike `hashValue`, it is stable across runs.
+    var stableHashHex: String {
+        let hash = utf8.reduce(UInt64(0xCBF2_9CE4_8422_2325)) { ($0 ^ UInt64($1)) &* 0x0000_0100_0000_01B3 }
+        let hex = String(hash, radix: 16)
+        return String(repeating: "0", count: 16 - hex.count) + hex
     }
 }
 

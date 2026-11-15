@@ -48,4 +48,30 @@ final class SetupGuideHelpersTest: XCTestCase {
         lines = ["maybe", "No"]
         XCTAssertFalse(try helpers.selectBoolean())
     }
+
+    func testPrompts_throwWithoutPromptingWhenThereIsNoOption() {
+        let helpers = SetupGuideHelpers(logger: Logger(quiet: true, verbose: false, colorMode: .never))
+        var reads = 0
+        // Bounded: a prompt that loops on no option ends at the end of the input instead of hanging.
+        helpers.readInput = {
+            reads += 1
+            return reads > 3 ? nil : "1"
+        }
+        let prompts: [(String, () throws -> Void)] = [
+            ("single", { _ = try helpers.select(single: []) }),
+            ("multiple", { _ = try helpers.select(multiple: []) }),
+        ]
+
+        for (name, prompt) in prompts {
+            reads = 0
+            XCTAssertThrowsError(try prompt(), name) { error in
+                guard case let PeripheryError.guidedSetupError(message) = error else {
+                    return XCTFail("\(name): unexpected error \(error)")
+                }
+
+                XCTAssertTrue(message.contains("no options"), "\(name): \(message)")
+            }
+            XCTAssertEqual(reads, 0, name)
+        }
+    }
 }

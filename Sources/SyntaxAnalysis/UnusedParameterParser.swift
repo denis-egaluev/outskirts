@@ -61,8 +61,12 @@ public struct Parameter: Item, Hashable {
     let isIsolated: Bool
     let hasAttributes: Bool
     let location: Location
+    /// The items of the default value, which may use a param of an enclosing function.
+    let defaultValueItems: [Item]
 
-    public let items: [Item] = []
+    public var items: [Item] {
+        defaultValueItems
+    }
 
     public func makeDeclaration(withParent parent: Declaration) -> Declaration {
         let parentUsrs = parent.usrs.sorted().joined(separator: "-")
@@ -257,7 +261,8 @@ struct UnusedParameterParser {
                          hasDefaultValue: syntax.defaultValue != nil,
                          isIsolated: isIsolated(parameter: syntax),
                          hasAttributes: !syntax.attributes.isEmpty,
-                         location: location)
+                         location: location,
+                         defaultValueItems: parse(node: syntax.defaultValue?.value, Collector<Item>?.none).map { [$0] } ?? [])
     }
 
     private func isIsolated(parameter syntax: FunctionParameterSyntax) -> Bool {
@@ -307,13 +312,16 @@ struct UnusedParameterParser {
             }
         }
 
-        let items = bindings.flatMap {
+        // Attribute arguments, such as those of a property wrapper, are evaluated in the enclosing scope.
+        let attributeItems = syntax.attributes.compactMap { parse(node: $0, collector) }
+
+        let bindingItems = bindings.flatMap {
             let initializerItems = $0.initializer?.children(viewMode: .sourceAccurate).compactMap { parse(node: $0, collector) } ?? []
             let accessorItems = $0.accessorBlock?.children(viewMode: .sourceAccurate).compactMap { parse(node: $0, collector) } ?? []
             return initializerItems + accessorItems
         }
 
-        return Variable(names: names, items: items)
+        return Variable(names: names, items: attributeItems + bindingItems)
     }
 
     private func parse(identifier: TokenSyntax) -> Item {

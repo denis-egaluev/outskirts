@@ -88,4 +88,70 @@ final class UnusedParameterRetentionTest: FixtureSourceGraphTestCase {
             }
         }
     }
+
+    func testFunctionsReferencedAsValues() {
+        analyze(retainPublic: true) {
+            assertReferenced(.class("FunctionValueHost")) {
+                self.assertReferenced(.functionMethodInstance("transform(_:)")) {
+                    self.assertReferenced(.varParameter("value"))
+                }
+                self.assertReferenced(.functionMethodStatic("make(_:)")) {
+                    self.assertReferenced(.varParameter("value"))
+                }
+                self.assertReferenced(.functionMethodInstance("method(_:)")) {
+                    self.assertReferenced(.varParameter("value"))
+                }
+                self.assertReferenced(.functionMethodInstance("calledOnly(_:)")) {
+                    self.assertNotReferenced(.varParameter("value"))
+                }
+                self.assertReferenced(.functionConstructor("init(calledInit:)")) {
+                    self.assertNotReferenced(.varParameter("calledInit"))
+                }
+            }
+        }
+    }
+
+    #if os(macOS)
+        func testSelectorTargets() {
+            analyze(retainPublic: true) {
+                assertReferenced(.class("SelectorTargetHost")) {
+                    self.assertReferenced(.functionMethodInstance("handle(_:)")) {
+                        self.assertReferenced(.varParameter("sender"))
+                    }
+                    self.assertReferenced(.functionMethodInstance("calledOnly(_:)")) {
+                        self.assertNotReferenced(.varParameter("value"))
+                    }
+                }
+            }
+        }
+    #endif
+
+    func testParameterizedSwiftTestingFunctions() {
+        analyze {
+            assertReferenced(.struct("ParameterizedTestHost")) {
+                self.assertReferenced(.functionMethodInstance("parameterized(_:)")) {
+                    self.assertReferenced(.varParameter("value"))
+                }
+                self.assertReferenced(.functionMethodInstance("helper(_:)")) {
+                    self.assertNotReferenced(.varParameter("value"))
+                }
+            }
+        }
+    }
+
+    func testResultBuilderMethodParameters() {
+        analyze(retainPublic: true) {
+            assertReferenced(.enum("FixtureSumBuilder")) {
+                self.assertReferenced(.functionMethodStatic("buildBlock(_:)")) {
+                    self.assertReferenced(.varParameter("values"))
+                }
+                self.assertReferenced(.functionMethodStatic("buildExpression(_:)")) {
+                    self.assertReferenced(.varParameter("value"))
+                }
+                self.assertReferenced(.functionMethodStatic("helper(_:)")) {
+                    self.assertNotReferenced(.varParameter("value"))
+                }
+            }
+        }
+    }
 }

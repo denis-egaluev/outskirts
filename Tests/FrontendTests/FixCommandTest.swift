@@ -20,6 +20,15 @@ final class FixCommandTest: XCTestCase {
         XCTAssertEqual(command.scan.buildOptions.excludeTests, true)
     }
 
+    func testUsageErrorsPointToTheHelpOfTheirOwnSubcommand() {
+        for path in [["scan"], ["fix"], ["check-update"], ["clear-cache"], ["config", "check"], ["config", "schema"], ["version"]] {
+            XCTAssertThrowsError(try OutskirtsCommand.parseAsRoot(path + ["--bogus"]), "\(path)") { error in
+                let message = OutskirtsCommand.fullMessage(for: error)
+                XCTAssertTrue(message.contains("See 'outskirts \(path.joined(separator: " ")) --help'"), message)
+            }
+        }
+    }
+
     func testDefaultSwiftPackageScanIsComplete() {
         XCTAssertNil(FixCommand.PartialScan(of: .spm, configuration: Configuration()))
     }

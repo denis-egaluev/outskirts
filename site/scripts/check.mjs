@@ -51,6 +51,7 @@ checkStylesheet();
 checkSitemap();
 checkSecurityTxt();
 checkSoftwareVersion();
+checkNotFoundPage();
 errors.push(...checkMarkdownSources());
 
 if (errors.length) {
@@ -157,6 +158,13 @@ function checkSecurityTxt() {
   if (hash !== SECURITY_TXT_SHA256) {
     errors.push(`.well-known/security.txt changed (sha256 ${hash}); if on purpose, update SECURITY_TXT_SHA256 in scripts/check.mjs`);
   }
+}
+
+/** Without `not_found_handling`, the Worker answers an unknown path with an empty 404 instead of 404.html. */
+function checkNotFoundPage() {
+  const config = readFileSync(join(REPO_DIR, "site", "wrangler.jsonc"), "utf8");
+  if (!existsSync(join(root, "404.html"))) errors.push("404.html is missing");
+  if (!/"not_found_handling":\s*"404-page"/.test(config)) errors.push('site/wrangler.jsonc: assets do not set "not_found_handling": "404-page"');
 }
 
 // MARK: - Helpers

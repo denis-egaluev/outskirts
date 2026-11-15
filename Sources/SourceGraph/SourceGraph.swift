@@ -657,7 +657,7 @@ public final class SourceGraph {
     }
 
     func isEquatable(_ decl: Declaration) -> Bool {
-        conforms(decl, to: ["Equatable", "Hashable"])
+        conforms(decl, to: ["Equatable", "Hashable", "Comparable"])
     }
 
     func isHashable(_ decl: Declaration) -> Bool {

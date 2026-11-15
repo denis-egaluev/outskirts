@@ -29,7 +29,7 @@ Select a format with `--format` (`format` in the configuration file). The defaul
 
 - `--write-results <file>` (`write_results`) also writes the report to a file.
 - `--skip-stdout-results` then keeps it off stdout; it requires `--write-results`.
-- With `--quiet`, a scan with no result prints nothing on stdout, and `--quiet --write-results <file>` writes the report to the file only. The file always holds the complete report, an empty document included.
+- With `--quiet`, a scan with no result prints nothing on stdout, and `--quiet --write-results <file>` writes the report to the file only. The file always holds the complete report, an empty document included. An explicit `--no-skip-stdout-results` overrides this and always prints the report to stdout, an empty one included.
 
 ## xcode
 

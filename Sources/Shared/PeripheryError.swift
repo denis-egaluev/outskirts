@@ -16,6 +16,7 @@ public enum PeripheryError: Error, LocalizedError, CustomStringConvertible {
     case updateCheckError(message: String)
     case xcodebuildNotConfigured
     case pathDoesNotExist(path: String)
+    case projectNotFound(path: String)
     case foundIssues(count: Int)
     case staleBaselineEntries(count: Int)
     case packageError(message: String)
@@ -32,6 +33,7 @@ public enum PeripheryError: Error, LocalizedError, CustomStringConvertible {
     case incompleteIndexCoverage(message: String)
     case emptyIndexStore(indexStorePaths: [String])
     case derivedDataPathNotFound(derivedDataPath: String)
+    case derivedDataPathNotADirectory(derivedDataPath: String)
     case derivedDataIndexStoreNotFound(derivedDataPath: String, tried: [String])
     case indexBuiltFromNotInGitWorkTree(path: String)
     case indexBuiltFromUnknownRevision(revision: String, repository: String, message: String)
@@ -73,6 +75,8 @@ public enum PeripheryError: Error, LocalizedError, CustomStringConvertible {
             return "Xcode is not configured for command-line use. Please run 'sudo xcode-select -s /Applications/Xcode.app'."
         case let .pathDoesNotExist(path):
             return "No such file or directory: \(path)."
+        case let .projectNotFound(path):
+            return "No Xcode project or workspace found at \(path)."
         case let .foundIssues(count):
             return "Found \(count) \(count > 1 ? "issues" : "issue")."
         case let .staleBaselineEntries(count):
@@ -109,6 +113,8 @@ public enum PeripheryError: Error, LocalizedError, CustomStringConvertible {
             return "The index store(s) hold no unit for an existing source file, so no results can be reported. Index store(s):\(paths)\nBuild the project first, and make sure the index store paths point to the index store of that build."
         case let .derivedDataPathNotFound(derivedDataPath):
             return "The DerivedData directory given to '--derived-data-path' does not exist: \(derivedDataPath)"
+        case let .derivedDataPathNotADirectory(derivedDataPath):
+            return "The path given to '--derived-data-path' is not a directory: \(derivedDataPath)"
         case let .derivedDataIndexStoreNotFound(derivedDataPath, tried):
             let paths = tried.map { "\n  - \($0)" }.joined()
             return "The DerivedData directory given to '--derived-data-path' has no index store: \(derivedDataPath)\nExpected one of:\(paths)"
@@ -139,7 +145,12 @@ public enum PeripheryError: Error, LocalizedError, CustomStringConvertible {
 
     // MARK: - Private
 
+    /// Shows the error's own message, never its Swift type name.
     private func describe(_ error: Error) -> String {
-        "(\(type(of: error))) \(String(describing: error))"
+        if let message = (error as? LocalizedError)?.errorDescription {
+            return message
+        }
+
+        return String(describing: error)
     }
 }

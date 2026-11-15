@@ -9,6 +9,8 @@ public struct FixPlan: Sendable {
         let realPath: String
         public let original: [UInt8]
         public let fixed: [UInt8]
+        /// The ranges of `original` that `fixed` leaves out.
+        let removedRanges: [Range<Int>]
         public let removedKeys: Set<String>
     }
 
@@ -29,7 +31,13 @@ public struct FixPlan: Sendable {
                   let new = String(validating: change.fixed, as: UTF8.self)
             else { return "Binary files a/\(path) and b/\(path) differ\n" }
 
-            return UnifiedDiff.diff(old: old, new: new, oldPath: "a/\(path)", newPath: "b/\(path)")
+            return UnifiedDiff.diff(
+                old: old,
+                new: new,
+                removing: change.removedRanges,
+                oldPath: "a/\(path)",
+                newPath: "b/\(path)"
+            )
         }.joined()
     }
 

@@ -72,6 +72,13 @@ public struct IndexPlatform: Hashable, Comparable, CustomStringConvertible, Send
         }
     }
 
+    /// Whether units of these platforms cover a target supporting this platform. A Mac Catalyst target is an iOS
+    /// target (`SDKROOT = iphoneos`, `SUPPORTS_MACCATALYST = YES`) built for either platform: its Mac Catalyst units
+    /// cover its iOS platform.
+    public func isCovered(by platforms: Set<IndexPlatform>) -> Bool {
+        platforms.contains(self) || (self == .iOS && platforms.contains(.macCatalyst))
+    }
+
     public var description: String {
         name
     }

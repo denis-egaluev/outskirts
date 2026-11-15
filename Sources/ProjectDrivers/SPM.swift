@@ -23,8 +23,9 @@ public enum SPM {
             self.logger = logger
         }
 
-        public func clean() throws {
-            try shell.exec(["swift", "package", "clean"])
+        /// Cleans the build products in the scratch path of the build described by `additionalArguments`.
+        public func clean(additionalArguments: [String]) throws {
+            try shell.exec(["swift", "package", "clean"] + Self.arguments(from: additionalArguments, options: Self.scratchOptions))
         }
 
         public func build(additionalArguments: [String]) throws {
@@ -36,13 +37,22 @@ public enum SPM {
         /// All of these options take a value, either as `--flag=value` or as a separate argument.
         static let locationOptions: Set<String> = [
             "-c", "--configuration",
-            "--scratch-path", "--build-path",
+            "--scratch-path", "--build-path", "--package-path",
             "--build-system",
             "--triple", "--arch", "--sdk", "--toolchain",
+            "--swift-sdk", "--swift-sdks-path",
+            "--sanitize",
             "-Xswiftc",
         ]
 
+        /// Build arguments that locate the scratch path, for `swift package clean`.
+        static let scratchOptions: Set<String> = ["--scratch-path", "--build-path", "--package-path"]
+
         static func locationArguments(from buildArguments: [String]) -> [String] {
+            arguments(from: buildArguments, options: locationOptions)
+        }
+
+        static func arguments(from buildArguments: [String], options locationOptions: Set<String>) -> [String] {
             var result: [String] = []
             var index = buildArguments.startIndex
 
@@ -140,6 +150,12 @@ public struct Target: Decodable {
 
     public var isTestTarget: Bool {
         type == "test"
+    }
+
+    /// The module the target compiles, which index units name: the target name made a C identifier (`My-Lib`
+    /// compiles `My_Lib`).
+    public var moduleName: String {
+        c99name ?? name
     }
 }
 

@@ -10,19 +10,17 @@ import SystemPackage
 /// tree, so committed, staged, unstaged and untracked changes all count.
 public final class ChangedSinceFilter {
     private let configuration: Configuration
-    private let shell: Shell
     private let contextualLogger: ContextualLogger
 
-    public required init(configuration: Configuration, shell: Shell, logger: Logger) {
+    public required init(configuration: Configuration, logger: Logger) {
         self.configuration = configuration
-        self.shell = shell
         contextualLogger = logger.contextualized(with: "report:changed")
     }
 
     public func filter(_ results: [ScanResult]) throws -> [ScanResult] {
         guard let ref = configuration.changedSince else { return results }
 
-        let changes = try Changes(ref: ref, projectRoot: configuration.projectRoot, shell: shell, wantsLines: configuration.changedLines)
+        let changes = try Changes(ref: ref, projectRoot: configuration.projectRoot, wantsLines: configuration.changedLines)
         contextualLogger.debug("\(changes.files.count) changed files, \(changes.untracked.count) of them untracked")
 
         return results.filter { result in
@@ -61,8 +59,21 @@ public final class ChangedSinceFilter {
         var untracked: Set<String> = []
         var lines: [String: [Range<Int>]] = [:]
 
-        init(ref: String, projectRoot: FilePath, shell: Shell, wantsLines: Bool) throws {
-            let git = ["git", "-C", projectRoot.string]
+        init(ref: String, projectRoot: FilePath, wantsLines: Bool) throws {
+            /// git runs without a shell, in the C locale, and without the variables of a hook that point it at
+            /// another repository or index. Only plumbing commands run, which never refresh the index of the user.
+            func run(_ arguments: [String], in directory: FilePath) throws -> String {
+                do {
+                    return try Git.run(arguments, in: directory)
+                } catch let GitError.failed(_, status, message) {
+                    throw PeripheryError.shellCommandFailed(cmd: ["git"] + arguments, status: status, output: message)
+                }
+            }
+
+            @discardableResult
+            func git(_ arguments: [String]) throws -> String {
+                try run(arguments, in: projectRoot)
+            }
 
             guard !ref.hasPrefix("-") else {
                 throw PeripheryError.unknownGitRef(ref: ref)
@@ -70,31 +81,36 @@ public final class ChangedSinceFilter {
 
             let topLevel: String
             do {
-                topLevel = try shell.exec(git + ["rev-parse", "--show-toplevel"]).trimmed
+                topLevel = try git(["rev-parse", "--show-toplevel"]).trimmed
             } catch PeripheryError.shellCommandFailed {
                 throw PeripheryError.notInGitWorkTree(path: projectRoot.string)
             }
 
             let root = FilePath(topLevel)
-            let inTree = git + ["-c", "core.quotePath=false"]
+            let inTree = ["-c", "core.quotePath=false"]
 
             do {
-                try shell.exec(git + ["rev-parse", "--verify", "--quiet", "\(ref)^{commit}"])
+                try git(["rev-parse", "--verify", "--quiet", "\(ref)^{commit}"])
             } catch PeripheryError.shellCommandFailed {
                 throw PeripheryError.unknownGitRef(ref: ref)
             }
 
-            let base = try shell.exec(git + ["merge-base", ref, "HEAD"]).trimmed
+            let base = try git(["merge-base", ref, "HEAD"]).trimmed
 
-            let tracked = try shell.exec(inTree + ["diff", "--name-only", "-z", "--diff-filter=ACMR", base, "--"])
-            let others = try shell.exec(inTree + ["ls-files", "--others", "--exclude-standard", "-z", "--full-name", "--", ":/"])
+            let tracked: [String]
+            do {
+                tracked = try Git.changedFiles(since: base, in: root, diffFilter: "ACMR").map(\.path)
+            } catch let GitError.failed(command, status, message) {
+                throw PeripheryError.shellCommandFailed(cmd: ["git", command], status: status, output: message)
+            }
+            let others = try git(inTree + ["ls-files", "--others", "--exclude-standard", "-z", "--full-name", "--", ":/"])
 
             func canonical(_ relative: Substring) -> String {
                 ChangedSinceFilter.canonical(FilePath(String(relative)), relativeTo: root)
             }
 
-            for name in tracked.split(separator: "\0") {
-                files.insert(canonical(name))
+            for name in tracked {
+                files.insert(canonical(Substring(name)))
             }
 
             for name in others.split(separator: "\0") {
@@ -104,7 +120,7 @@ public final class ChangedSinceFilter {
             }
 
             if wantsLines {
-                let patch = try shell.exec(inTree + ["diff", "-U0", "-M", "--no-color", "--no-ext-diff", "--no-prefix", base, "--"])
+                let patch = try git(inTree + ["diff-index", "-p", "-U0", "-M", "--no-color", "--no-ext-diff", "--no-prefix", base, "--"])
                 for (file, ranges) in Self.parseHunks(patch) {
                     lines[canonical(Substring(file)), default: []] += ranges
                 }

@@ -37,10 +37,21 @@ public enum GitWorkingTree {
 
             return RealPath.resolve(root + "/" + entry.dropFirst(3))
         }
-        // git does not track a file through a linked directory, so the paths of the index are real paths.
-        let tracked = try Git.run(["ls-files", "-z", "--full-name"], in: FilePath(root))
+        // git does not track a file through a linked directory, so the paths of the index are real paths. `-v` tags
+        // each path: `S` for skip-worktree, a lowercase tag for assume-unchanged. git status hides the changes of
+        // these files, so they count as uncommitted whatever their contents.
+        var hidden: [String] = []
+        let tracked = try Git.run(["ls-files", "-v", "-z", "--full-name"], in: FilePath(root))
             .split(separator: "\0")
-            .map { root + "/" + $0 }
-        return .repository(topLevel: root, uncommitted: Set(paths), tracked: Set(tracked))
+            .compactMap { entry -> String? in
+                guard entry.count > 2, let tag = entry.first else { return nil }
+
+                let path = root + "/" + entry.dropFirst(2)
+                if tag == "S" || tag.isLowercase {
+                    hidden.append(path)
+                }
+                return path
+            }
+        return .repository(topLevel: root, uncommitted: Set(paths + hidden), tracked: Set(tracked))
     }
 }

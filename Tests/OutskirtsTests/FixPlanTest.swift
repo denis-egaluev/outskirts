@@ -182,6 +182,28 @@ final class FixPlanTest: XCTestCase {
         XCTAssertEqual(planner(.ignored).plan([dirty: ["a"]]).changes.count, 1)
     }
 
+    func testSkipWorktreeAndAssumeUnchangedFilesAreRefusedInAGitRepository() throws {
+        let skipped = try catalog("Skipped.xcstrings")
+        let assumed = try catalog("Assumed.xcstrings")
+        let hidden = try catalog("Hidden.xcstrings")
+        try git("init", "-q")
+        try git("add", ".")
+        try git("commit", "-q", "-m", "init")
+        try Data((original + "\n").utf8).write(to: URL(fileURLWithPath: skipped.string))
+        try Data((original + "\n").utf8).write(to: URL(fileURLWithPath: assumed.string))
+        try git("update-index", "--skip-worktree", "Skipped.xcstrings", "Hidden.xcstrings")
+        try git("update-index", "--assume-unchanged", "Assumed.xcstrings")
+
+        let plan = try planner(GitWorkingTree.state(at: root)).plan([skipped: ["a"], assumed: ["a"], hidden: ["a"]])
+
+        XCTAssertEqual(plan.changes.map(\.path), [])
+        XCTAssertEqual(reasons(plan), [
+            "Skipped.xcstrings": .uncommittedChanges,
+            "Assumed.xcstrings": .uncommittedChanges,
+            "Hidden.xcstrings": .uncommittedChanges,
+        ])
+    }
+
     func testOutsideAGitRepositoryIsRefusedUnlessAllowed() throws {
         let path = try catalog()
         guard case .notARepository = try GitWorkingTree.state(at: root) else {
@@ -202,5 +224,25 @@ final class FixPlanTest: XCTestCase {
         XCTAssertThrowsError(try GitWorkingTree.state(at: root)) { error in
             XCTAssertTrue("\(error)".contains("git status"), "\(error)")
         }
+    }
+
+    func testDryRunDiffOfALargeCatalogFollowsTheSizeOfTheRemoval() throws {
+        let keys = (0 ..< 12000).map { String(format: "key%05d", $0) }
+        let entries = keys.map { key in
+            "    \"\(key)\" : {\n      \"localizations\" : {\n        \"fr\" : {\n          \"stringUnit\" : {\n"
+                + "            \"state\" : \"translated\",\n            \"value\" : \"\(key)\"\n          }\n        }\n      }\n    }"
+        }
+        let path = try catalog("Large.xcstrings", "{\n  \"strings\" : {\n" + entries.joined(separator: ",\n") + "\n  },\n  \"version\" : \"1.0\"\n}\n")
+        let removed = Set(keys.indices.filter { $0 % 3 != 0 || (2000 ..< 7000).contains($0) }.map { keys[$0] })
+        let plan = planner().plan([path: removed])
+        XCTAssertEqual(plan.changes.count, 1)
+
+        let start = Date()
+        let diff = plan.diff(relativeTo: root)
+        let elapsed = Date().timeIntervalSince(start)
+
+        XCTAssertEqual(diff.split(separator: "\n").count { $0.hasPrefix("-") && !$0.hasPrefix("---") }, removed.count * 10)
+        // Comparing every line of the file before and after took minutes; only the lines around the removal are compared.
+        XCTAssertLessThan(elapsed, 10, "the diff of 120,000 lines took \(elapsed) s")
     }
 }

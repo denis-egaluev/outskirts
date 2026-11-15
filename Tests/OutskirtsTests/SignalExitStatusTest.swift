@@ -63,6 +63,29 @@ final class SignalExitStatusTest: XCTestCase {
         try assertExit(afterSending: SIGTERM, expectedStatus: 143)
     }
 
+    /// The build runs without the terminal of outskirts, so a hangup (closed terminal, lost connection) reaches it
+    /// only through outskirts.
+    func testSighupStopsTheBuildAndExitsWith129() throws {
+        try assertExit(afterSending: SIGHUP, expectedStatus: 129)
+    }
+
+    func testSigquitStopsTheBuildAndExitsWith131() throws {
+        try assertExit(afterSending: SIGQUIT, expectedStatus: 131)
+    }
+
+    /// A hangup ignored at launch, as under nohup, stays ignored: the build goes on until another signal stops it.
+    func testSighupIgnoredAtLaunchLeavesTheBuildRunning() throws {
+        let nohup = try ShellImpl.executableURL(for: "nohup", environment: ProcessInfo.processInfo.environment)
+        let (process, exited) = try launchPeriphery(through: nohup)
+        guard waitForBuildToStart(of: process), let pid = buildPid else { return }
+
+        kill(process.processIdentifier, SIGHUP)
+
+        XCTAssertEqual(exited.wait(timeout: .now() + 2), .timedOut, "periphery exited on an ignored hangup\n\(log())")
+        XCTAssertEqual(kill(pid, 0), 0, "the build was stopped by an ignored hangup")
+        assertExit(of: process, exited, build: pid, afterSending: SIGTERM, expectedStatus: 143)
+    }
+
     // MARK: - Private
 
     private var buildPid: pid_t? {
@@ -75,6 +98,16 @@ final class SignalExitStatusTest: XCTestCase {
         let (process, exited) = try launchPeriphery()
         guard waitForBuildToStart(of: process), let pid = buildPid else { return }
 
+        assertExit(of: process, exited, build: pid, afterSending: signalNumber, expectedStatus: expectedStatus)
+    }
+
+    private func assertExit(
+        of process: Process,
+        _ exited: DispatchSemaphore,
+        build pid: pid_t,
+        afterSending signalNumber: Int32,
+        expectedStatus: Int32
+    ) {
         kill(process.processIdentifier, signalNumber)
 
         guard exited.wait(timeout: .now() + 30) == .success else {
@@ -87,7 +120,8 @@ final class SignalExitStatusTest: XCTestCase {
         XCTAssertEqual(errno, ESRCH)
     }
 
-    private func launchPeriphery() throws -> (Process, DispatchSemaphore) {
+    /// Launches outskirts, or `launcher` with the path of outskirts as its first argument.
+    private func launchPeriphery(through launcher: URL? = nil) throws -> (Process, DispatchSemaphore) {
         let realSwift = try ShellImpl.executableURL(for: "swift", environment: ProcessInfo.processInfo.environment)
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.appendingPathComponent("bin").path):\(environment["PATH"] ?? "")"
@@ -97,16 +131,42 @@ final class SignalExitStatusTest: XCTestCase {
         let log = try FileHandle(forWritingTo: logFile)
         let exited = DispatchSemaphore(value: 0)
         let process = Process()
-        process.executableURL = try peripheryExecutable()
-        process.arguments = ["scan", "--disable-update-check"]
+        let executable = try peripheryExecutable()
+        let arguments = ["scan", "--disable-update-check"]
+        if let launcher {
+            process.executableURL = launcher
+            process.arguments = [executable.path] + arguments
+        } else {
+            process.executableURL = executable
+            process.arguments = arguments
+        }
         process.currentDirectoryURL = root
         process.environment = environment
         process.standardOutput = log
         process.standardError = log
         process.terminationHandler = { _ in exited.signal() }
         processes.append(process)
-        try process.run()
+        // Launched with the default action of SIGHUP and SIGQUIT, as from a terminal: a shell created by an earlier
+        // test makes this process ignore them, and Foundation passes ignored signals on to the processes it launches
+        // on Linux, where outskirts would then keep ignoring them, as under nohup.
+        try withDefaultAction(of: [SIGHUP, SIGQUIT]) {
+            try process.run()
+        }
         return (process, exited)
+    }
+
+    private func withDefaultAction(of signals: [Int32], _ body: () throws -> Void) throws {
+        var previous = signals.map { _ in sigaction() }
+        for (index, signalNumber) in signals.enumerated() {
+            XCTAssertEqual(sigaction(signalNumber, nil, &previous[index]), 0)
+            signal(signalNumber, SIG_DFL)
+        }
+        defer {
+            for (index, signalNumber) in signals.enumerated() {
+                XCTAssertEqual(sigaction(signalNumber, &previous[index], nil), 0)
+            }
+        }
+        try body()
     }
 
     private func waitForBuildToStart(of process: Process) -> Bool {

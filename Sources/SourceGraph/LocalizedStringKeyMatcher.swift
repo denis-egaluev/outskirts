@@ -18,8 +18,8 @@ struct LocalizedStringKeyMatcher {
     private let patterns: [NSRegularExpression]
 
     /// - Parameter patterns: Keys used dynamically, each either a glob (`*` matches any characters, `?` a single
-    ///   character) or a regular expression between slashes (`/^quickChat\.[a-z]+$/`). Both must match the whole
-    ///   key.
+    ///   character, line breaks included) or a regular expression between slashes (`/^quickChat\.[a-z]+$/`), whose
+    ///   `.` keeps its standard meaning and does not match a line break. Both must match the whole key.
     init(usedKeys: Set<String>, patterns: [String] = []) throws {
         self.usedKeys = usedKeys
         usedFormatSkeletons = Set(usedKeys.compactMap(Self.formatSkeleton(of:)))
@@ -44,7 +44,8 @@ struct LocalizedStringKeyMatcher {
     }
 
     static func regularExpression(forPattern pattern: String) throws -> NSRegularExpression {
-        let expression: String = if pattern.count > 1, pattern.hasPrefix("/"), pattern.hasSuffix("/") {
+        let isRegularExpression = pattern.count > 1 && pattern.hasPrefix("/") && pattern.hasSuffix("/")
+        let expression: String = if isRegularExpression {
             String(pattern.dropFirst().dropLast())
         } else {
             pattern.map { character -> String in
@@ -57,7 +58,10 @@ struct LocalizedStringKeyMatcher {
         }
 
         do {
-            return try NSRegularExpression(pattern: "^(?:\(expression))$")
+            return try NSRegularExpression(
+                pattern: "\\A(?:\(expression))\\z",
+                options: isRegularExpression ? [] : [.dotMatchesLineSeparators]
+            )
         } catch {
             throw PeripheryError.usageError("Invalid localized_string_key_patterns entry '\(pattern)': \(error.localizedDescription)")
         }

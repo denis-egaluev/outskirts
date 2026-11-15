@@ -84,12 +84,24 @@
             )
         }
 
+        func testDerivedDataPathDiffersWhenSchemeBoundariesDiffer() throws {
+            XCTAssertNotEqual(try derivedDataPath(schemes: ["App", "Tests"]), try derivedDataPath(schemes: ["AppTests"]))
+        }
+
+        func testDerivedDataPathUsesWideStableHashes() throws {
+            let name = try XCTUnwrap(FilePath(try derivedDataPath()).lastComponent?.string)
+            let hashes = name.split(separator: "-").dropFirst()
+
+            XCTAssertEqual(hashes.count, 3)
+            XCTAssertTrue(hashes.allSatisfy { $0.count == 16 }, name)
+        }
+
         func testDerivedDataPathKeepsExistingNameForEmptyBuildArguments() throws {
             let (xcodebuild, _) = makeXcodebuild()
             let project = ProjectStub()
-            let version = try xcodebuild.version().djb2Hex
-            let projectHash = project.path.lexicallyNormalized().string.djb2Hex
-            let schemesHash = "SchemeA".djb2Hex
+            let version = try xcodebuild.version().stableHashHex
+            let projectHash = project.path.lexicallyNormalized().string.stableHashHex
+            let schemesHash = "SchemeA".stableHashHex
 
             let path = try derivedDataPath()
 

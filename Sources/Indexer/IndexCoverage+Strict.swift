@@ -47,7 +47,8 @@ extension IndexCoverage {
 
             guard !relevant.isEmpty else { return [.target(target, platforms: platforms.sorted())] }
 
-            let missingPlatforms = platforms.subtracting(relevant.compactMap(\.platform))
+            let indexedPlatforms = Set(relevant.compactMap(\.platform))
+            let missingPlatforms = platforms.filter { !$0.isCovered(by: indexedPlatforms) }
             guard missingPlatforms.isEmpty else { return [.target(target, platforms: missingPlatforms.sorted())] }
 
             let unindexed = files.filter { (units[$0] ?? []).isDisjoint(with: relevant) }

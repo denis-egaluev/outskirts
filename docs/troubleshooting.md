@@ -27,7 +27,7 @@ The scan records these reasons only when `--explain` is passed, so other scans a
 
 ## Results in the wrong place or false positives in one file
 
-The index store can become corrupt or out of sync with the source files, for example when a scan is forcefully interrupted (Ctrl-C). Pass `--clean-build` to remove the existing build artifacts and build again.
+The index store can become corrupt or out of sync with the source files, for example when a scan is forcefully interrupted (Ctrl-C). Pass `--clean-build` to remove the existing build artifacts and build again. When the build is skipped, with `--skip-build`, `--index-store-path` or `--derived-data-path`, `--clean-build` has no effect and outskirts warns about it: rebuild the index store yourself instead. The warnings below then advise to rebuild the index store rather than to pass `--clean-build`.
 
 ### Index data older than its source
 
@@ -48,12 +48,14 @@ Since 3.24.0.
 Modification times say little about an index store restored from a cache, or read from a copy of the project: a fresh checkout makes every file newer than its index data, and a file edited then set back to an older date looks unchanged. When you know the git revision the index was built from, pass it with [`--index-built-from`](options.md#--index-built-from) (`index_built_from`) and outskirts asks git instead. A file is then out of date when git reports it changed since that revision, committed, staged, unstaged or untracked, whatever its modification time:
 
 - a modified file, and a deleted or renamed file whose index data describes declarations that no longer exist;
-- a Swift file added since the revision, which has no index data;
-- a file the scan reads besides the index: Interface Builder files, property lists, String Catalogs, Metal sources, Core Data models and mappings, asset catalogs, Xcode projects and workspaces, and package manifests.
+- a Swift file added since the revision to an analyzed target, which has no index data (with [`--generic-project-config`](options.md#--generic-project-config), which lists no source, any Swift file added);
+- a file the scan reads besides the index: the Interface Builder files, property lists, String Catalogs, Core Data models and mappings of the project, Xcode projects and workspaces, package manifests, and Metal sources and asset catalogs when their detection is on.
+
+Other files, such as a script, a test fixture or a resource that no target lists, do not make the index out of date. outskirts reads the repository of the project root: the `GIT_DIR` or `GIT_INDEX_FILE` that a git hook exports does not change which files changed.
 
 > warning: 2 files changed since 4f1c2ab, the revision the index was built from, in DerivedData/Index.noindex/DataStore: Sources/Kit/Beta.swift, Sources/Kit/Gamma.swift. Results may be at the wrong lines or missing: rebuild the project before scanning, or pass '--clean-build' to start from an empty index store.
 
-Files that git does not track, such as generated files outside the working tree or ignored by it, are still judged by their modification time. The scan fails when the project root is not in a git working tree, or when the revision names no commit (fetch it first in a shallow CI checkout), rather than falling back to modification times. `--strict-index` fails the scan instead of printing the warning, as above.
+Files that git does not track, such as generated files outside the working tree or ignored by it, and files marked skip-worktree or assume-unchanged, whose working tree copy git does not look at, are still judged by their modification time. The scan fails when the project root is not in a git working tree, or when the revision names no commit (fetch it first in a shallow CI checkout), rather than falling back to modification times. `--strict-index` fails the scan instead of printing the warning, as above.
 
 The revision is an assertion: outskirts cannot check that the index was built from it, and an index built with uncommitted changes is described by no revision. Let the build record it next to its output, from the same checkout:
 
@@ -194,8 +196,12 @@ An index store only describes what its build compiled: one platform of a project
 Pass [`--strict-index-coverage`](options.md#--strict-index-coverage) (`strict_index_coverage: true`) to fail the scan instead, with an error that names each target and platform missing from the index data. Coverage is judged per target and per platform, not per file: a file shared by an iOS and a macOS target is indexed by the iOS build alone, which does not make the macOS target covered.
 
 - **Expected targets**: the targets of the project with Swift source files (every target of the package for a Swift package), minus [`exclude_targets`](options.md#--exclude-targets), and the test targets unless [`--exclude-tests`](options.md#--exclude-tests) is set. Leave out with `exclude_targets` the targets that none of your builds compiles.
-- **Expected platforms**: for an Xcode target, the platforms of its `SUPPORTED_PLATFORMS` build setting, else of its `SDKROOT`, as written in the project file (the target settings, else the project ones). Device and simulator are the same platform; Mac Catalyst is not expected, even when the target supports it. When these settings come from an `.xcconfig` file only, any platform covers the target. For a Swift package, the platform of the host, or the one of a `--triple` build argument. There is no setting yet to leave out one platform of a target: when a target declares a platform that none of your builds compiles, build that platform too, or leave the whole target out with `exclude_targets`, or keep `--strict-index-coverage` off for that scan.
-- **Covered**: a target is covered on a platform when the index data holds a unit of its module, compiled for that platform, for one of its files; the platform is read from the target triple of the unit. When the module name of an Xcode target cannot be read from the project file, or appears in no unit, units of any module for its files count. A target covered on its platforms must also have index data for each of its files.
+- **Expected platforms**: for an Xcode target, the platforms of its `SUPPORTED_PLATFORMS` build setting, else of its `SDKROOT`, as written in the project file (the target settings, else the project ones); `$(inherited)` stands for the project value, else for the platform of the `SDKROOT`. Device and simulator are the same platform; Mac Catalyst is not expected, even when the target supports it. When these settings come from an `.xcconfig` file only, any platform covers the target. For a Swift package, the platform of a `--triple` build argument, else the one of the host; any platform with `--index-store-path` and no `--triple`, as the store may come from a build for another platform, and with `--swift-sdk` or a triple whose platform outskirts does not know. There is no setting yet to leave out one platform of a target: when a target declares a platform that none of your builds compiles, build that platform too, or leave the whole target out with `exclude_targets`, or keep `--strict-index-coverage` off for that scan.
+- **Covered**: a target is covered on a platform when the index data holds a unit of its module, compiled for that platform, for one of its files; the platform is read from the target triple of the unit. A Mac Catalyst build covers the iOS platform: a Mac Catalyst target is an iOS target built for either. When the module name of an Xcode target cannot be read from the project file, or appears in no unit, units of any module for its files count. A target covered on its platforms must also have index data for each of its files.
+
+## A build that needs a password
+
+outskirts runs the build, git and the other tools it calls without a terminal and with an empty standard input. A command that would ask for a password or a passphrase fails instead of waiting for an answer: a private package dependency fetched over SSH with a key whose passphrase is not held by an agent, or over HTTPS without a credential helper. Load the key into `ssh-agent` (`ssh-add`), or set up a git credential helper (the macOS keychain, Git Credential Manager), then scan again.
 
 ## Mixed Swift and Objective-C
 

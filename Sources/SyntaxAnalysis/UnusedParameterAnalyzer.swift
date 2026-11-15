@@ -121,11 +121,19 @@ public final class UnusedParameterAnalyzer {
 
             return .unused
         case let item as Closure:
+            // A closure parameter only shadows the param inside the closure, not in the items that follow it, such as
+            // the next trailing closure of the same call.
             if item.params.contains(param.name.text) {
-                return .shadowed
+                return .unused
             }
 
             if isParam(param, usedIn: item.items) {
+                return .used
+            }
+        case let item as Function:
+            // A nested function may use the param in the default value of one of its own parameters.
+            let defaultValueItems = item.parameters.flatMap(\.items)
+            if isParam(param, usedIn: defaultValueItems + item.items) {
                 return .used
             }
         case let item as Identifier:

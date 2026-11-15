@@ -68,6 +68,16 @@ final class LocalizedStringKeyMatcherTest: XCTestCase {
         XCTAssertFalse(matcher.matches("tier.gold.label.hint"))
     }
 
+    func testPatternsMatchTheWholeKeyAcrossLineBreaks() throws {
+        let matcher = try LocalizedStringKeyMatcher(usedKeys: [], patterns: ["pat.*", "one.?", "/re\\.[a-z]+/"])
+
+        XCTAssertTrue(matcher.matches("pat.a\nb"))
+        XCTAssertTrue(matcher.matches("one.\n"))
+        XCTAssertFalse(matcher.matches("one.a\n"))
+        XCTAssertFalse(matcher.matches("re.abc\n"))
+        XCTAssertFalse(matcher.matches("re.a\nb"))
+    }
+
     func testRejectsInvalidRegularExpressionPattern() {
         XCTAssertThrowsError(try LocalizedStringKeyMatcher(usedKeys: [], patterns: ["/tier.(/"]))
     }

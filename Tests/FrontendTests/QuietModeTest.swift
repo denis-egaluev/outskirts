@@ -1,4 +1,6 @@
+import Configuration
 import Foundation
+@testable import Frontend
 @testable import TestShared
 import XCTest
 
@@ -59,6 +61,34 @@ final class QuietModeTest: XCTestCase {
 
         XCTAssertEqual(output.status, 0, output.stderrText)
         XCTAssertEqual(output.stdoutText, "")
+    }
+
+    func testQuietWithExplicitNoSkipStdoutResultsPrintsTheEmptyJsonReport() throws {
+        let output = try scan(["--format", "json", "--retain-public", "--quiet", "--no-skip-stdout-results"], in: Self.packageWithoutResult)
+
+        XCTAssertEqual(output.status, 0, output.stderrText)
+        XCTAssertEqual(try reports(in: output.stdout).count, 0, output.stdoutText)
+    }
+
+    func testQuietWithExplicitNoSkipStdoutResultsPrintsToStdoutAndWritesTheFile() throws {
+        let report = outputDirectory.appendingPathComponent("report.json")
+
+        let output = try scan(
+            ["--format", "json", "--retain-public", "--quiet", "--no-skip-stdout-results", "--write-results", report.path],
+            in: Self.packageWithoutResult
+        )
+
+        XCTAssertEqual(output.status, 0, output.stderrText)
+        XCTAssertEqual(try reports(in: output.stdout).count, 0, output.stdoutText)
+        XCTAssertEqual(try reports(in: Data(contentsOf: report)).count, 0)
+    }
+
+    func testShouldPrintToStdoutHonoursAnExplicitNoSkipStdoutResultsUnderQuiet() {
+        let configuration = Configuration()
+        configuration.quiet = true
+
+        XCTAssertFalse(ScanCommand.shouldPrintToStdout(configuration: configuration, resultCount: 0))
+        XCTAssertTrue(ScanCommand.shouldPrintToStdout(configuration: configuration, resultCount: 0, stdoutRequested: true))
     }
 
     func testQuietWithNoResultStillWritesTheEmptyJsonDocumentToTheResultsFile() throws {

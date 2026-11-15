@@ -27,6 +27,10 @@ public final class XcodeWorkspace: XcodeProjectlike {
         do {
             xcworkspace = try XCWorkspace(pathString: self.path.string)
         } catch {
+            guard self.path.exists else {
+                throw PeripheryError.projectNotFound(path: self.path.string)
+            }
+
             throw PeripheryError.underlyingError(error)
         }
 

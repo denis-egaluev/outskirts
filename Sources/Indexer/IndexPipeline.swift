@@ -91,6 +91,7 @@ public struct IndexPipeline {
             try XCStringsIndexer(
                 files: plan.xcStringsPaths,
                 modulesByFile: plan.xcStringsModules,
+                interfaceBuilderFiles: plan.xibPaths,
                 graph: graph,
                 logger: logger,
                 configuration: configuration
