@@ -1,3 +1,4 @@
+import Extensions
 import Foundation
 import Shared
 import SourceGraph
@@ -31,6 +32,7 @@ public protocol PeripherySyntaxVisitor {
     func visit(_ node: SubscriptCallExprSyntax)
     func visit(_ node: AttributeSyntax)
     func visit(_ node: SequenceExprSyntax)
+    func visit(_ node: StringLiteralExprSyntax)
     func visit(_ node: DeclModifierSyntax)
 
     func visitPost(_ node: ActorDeclSyntax)
@@ -80,6 +82,7 @@ public extension PeripherySyntaxVisitor {
     func visit(_: SubscriptCallExprSyntax) {}
     func visit(_: AttributeSyntax) {}
     func visit(_: SequenceExprSyntax) {}
+    func visit(_: StringLiteralExprSyntax) {}
     func visit(_: DeclModifierSyntax) {}
 
     func visitPost(_: ActorDeclSyntax) {}
@@ -116,7 +119,7 @@ public final class MultiplexingSyntaxVisitor: SyntaxVisitor {
 
     public required init(file: SourceFile, swiftVersion: SwiftVersion) throws {
         sourceFile = file
-        let source = try String(contentsOf: file.path.url, encoding: .utf8)
+        let source = try String(swiftSourceAt: file.path)
         syntax = Parser.parse(source: source)
         locationConverter = SourceLocationConverter(fileName: file.path.string, tree: syntax)
         sourceLocationBuilder = SourceLocationBuilder(file: file, locationConverter: locationConverter)
@@ -249,6 +252,11 @@ public final class MultiplexingSyntaxVisitor: SyntaxVisitor {
     }
 
     override public func visit(_ node: SequenceExprSyntax) -> SyntaxVisitorContinueKind {
+        visitors.forEach { $0.visit(node) }
+        return .visitChildren
+    }
+
+    override public func visit(_ node: StringLiteralExprSyntax) -> SyntaxVisitorContinueKind {
         visitors.forEach { $0.visit(node) }
         return .visitChildren
     }

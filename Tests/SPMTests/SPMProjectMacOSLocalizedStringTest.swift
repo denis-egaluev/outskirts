@@ -1,5 +1,7 @@
 #if os(macOS)
     import Configuration
+    import ProjectDrivers
+    import SystemPackage
     @testable import TestShared
     import XCTest
 
@@ -62,6 +64,51 @@
             assertNotReferenced(.localizedString("mac_dictionary_subscript_key"))
         }
 
+        func testRetainsKeysPassedToGenericSubscriptParameters() {
+            assertReferenced(.localizedString("mac_generic_table_key"))
+            // The index store records no conversion of a `String` passed to a generic subscript parameter.
+            assertNotReferenced(.localizedString("mac_generic_subscript_key"))
+            assertNotReferenced(.localizedString("mac_dictionary_default_key"))
+            assertNotReferenced(.localizedString("mac_dictionary_remove_key"))
+            assertNotReferenced(.localizedString("mac_unused_generic_subscript_key"))
+        }
+
+        /// The index store records the conversion of a literal to a localized type on every supported toolchain
+        /// (Swift 6.1.2 and later).
+        func testRetainsLiteralsConvertedToLocalizedTypes() {
+            assertNotReferenced(.localizedString("mac_generic_string_key"))
+            assertNotReferenced(.localizedString("mac_plain_literal_key"))
+            assertReferenced(.localizedString("mac_generic_function_key"))
+            assertReferenced(.localizedString("mac_generic_closure_key"))
+            assertReferenced(.localizedString("mac_generic_raw_key"))
+            assertReferenced(.localizedString("mac_generic_multiline_key"))
+            assertReferenced(.localizedString("mac_generic_interpolated_key %lld"))
+            assertReferenced(.localizedString("mac_generic_method_key"))
+        }
+
+        /// Literals whose parameter type the callee signature does not give are keys only when the index store records
+        /// their conversion to a localized type; they stay conservatively retained when it cannot tell, in an `#if`
+        /// clause without a recorded callee.
+        func testIndexStoreDecidesLiteralsOfUnresolvedParameters() {
+            assertReferenced(.localizedString("mac_unlocated_localized_key"))
+            assertReferenced(.localizedString("mac_enum_payload_key"))
+            assertNotReferenced(.localizedString("mac_unlocated_string_key"))
+            assertNotReferenced(.localizedString("mac_skipped_closure_string_key"))
+            assertNotReferenced(.localizedString("mac_enum_payload_string_key"))
+            assertNotReferenced(.localizedString("mac_conditional_string_param_key"))
+            assertReferenced(.localizedString("mac_conditional_unlocated_key"))
+            assertReferenced(.localizedString("mac_uncompiled_key"))
+        }
+
+        /// The index store counts the three bytes of a UTF-8 byte order mark in the columns of the first line.
+        func testMatchesFirstLinePositionsOfFilesWithAByteOrderMark() {
+            assertReferenced(.localizedString("mac_bom_line1_key"))
+            assertReferenced(.localizedString("mac_bom_enum_line1_key"))
+            assertAccessibility(.enum("SPMByteOrderMarkKeys"), .public) {
+                self.assertAccessibility(.varStatic("bomLine1"), .public)
+            }
+        }
+
         func testRetainsKeysFromLocalizedDeclarationTypes() {
             assertReferenced(.localizedString("mac_annotated_property_key"))
             assertReferenced(.localizedString("mac_returned_resource_key"))
@@ -114,6 +161,53 @@
         func testExcludesInfoPlistAndAppShortcutsCatalogsByDefault() {
             assertNotIndexed(.localizedString("NSCameraUsageDescription"))
             assertNotIndexed(.localizedString("mac_shortcut_phrase"))
+        }
+    }
+
+    /// An index store that may describe an older version of a file cannot tell its literals apart: their positions
+    /// may have moved, so the literals whose parameter type is unknown stay conservatively retained.
+    final class SPMProjectMacOSOutdatedIndexLocalizedStringTest: SPMSourceGraphTestCase {
+        private static var temporaryDirectory: URL?
+
+        /// A copy of the package, built, then one of its files modified after its index store was written.
+        override static func setUp() {
+            super.setUp()
+
+            let configuration = Configuration()
+            configuration.buildFilenameMatchers()
+            let fileManager = FileManager.default
+            let directory = try! makeTemporaryDirectory("outskirts-outdated-index")
+            temporaryDirectory = directory
+            let project = FilePath(directory.path).appending("SPMProjectMacOS")
+            try! fileManager.createDirectory(atPath: project.string, withIntermediateDirectories: false)
+            for name in ["Package.swift", "Sources"] {
+                try! fileManager.copyItem(atPath: SPMProjectMacOSPath.appending(name).string, toPath: project.appending(name).string)
+            }
+            build(projectPath: project)
+
+            let file = project.appending("Sources/SPMProjectMacOSKit/SPMLocalizedViews.swift")
+            try! fileManager.setAttributes([.modificationDate: Date().addingTimeInterval(60)], ofItemAtPath: file.string)
+            project.chdir {
+                let driver = try! SPMProjectDriver(configuration: configuration, shell: shell, logger: logger)
+                plan = try! driver.plan(logger: logger.contextualized(with: "index"))
+            }
+            index(configuration: configuration)
+        }
+
+        override static func tearDown() {
+            if let temporaryDirectory {
+                try! FileManager.default.removeItem(at: temporaryDirectory)
+            }
+            super.tearDown()
+        }
+
+        func testRetainsLiteralsOfUnresolvedParametersOfOutdatedFiles() {
+            assertReferenced(.localizedString("mac_unlocated_string_key"))
+            assertReferenced(.localizedString("mac_skipped_closure_string_key"))
+            assertReferenced(.localizedString("mac_enum_payload_string_key"))
+            assertReferenced(.localizedString("mac_generic_subscript_key"))
+            assertReferenced(.localizedString("mac_unlocated_localized_key"))
+            assertNotReferenced(.localizedString("mac_plain_string_param_key"))
         }
     }
 

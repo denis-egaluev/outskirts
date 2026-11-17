@@ -14,12 +14,17 @@ import SwiftSyntax
 ///   - AppIntents `@Parameter(title:)` / `@Property(title:)` attribute arguments.
 ///   - Literals assigned to, returned from, or used as the default value of a declaration whose type is a
 ///     localized type (e.g. `let title: LocalizedStringResource = "key"`).
-///   - Literals passed to a call whose callee cannot be located syntactically (conservatively retained).
+///   - Literals passed to a call whose callee cannot be located syntactically, in code a macro may expand or in an
+///     `#if` clause (conservatively retained).
+/// - `unlocatedCallKeys` holds the literals passed to the other calls whose callee cannot be located syntactically,
+///   assumed to be keys unless the index store covers the file, in which case `literals` decides.
 /// - `callSites` holds the remaining calls, subscript calls included, that receive string literals. Whether those
 ///   literals are keys depends on the type of the receiving parameter, which is resolved from the index store by the
 ///   indexer.
 /// - `unresolvedKeys` holds the lookups whose key is built from a runtime value, with the literal prefix of the key
 ///   when there is one.
+/// - `literals` holds every string literal with its key and position, a key when the index store records its
+///   conversion to a localized type there.
 public final class LocalizedStringSyntaxVisitor: PeripherySyntaxVisitor {
     /// Type names whose values are created from a localization key when initialized from a string literal.
     public static let localizedTypeNames = [
@@ -44,7 +49,12 @@ public final class LocalizedStringSyntaxVisitor: PeripherySyntaxVisitor {
 
     public private(set) var usedStringKeys: Set<String> = []
     public private(set) var callSites: [LocalizedStringCallSite] = []
+    public private(set) var unlocatedCallKeys: Set<String> = []
     public private(set) var unresolvedKeys: [LocalizedStringUnresolvedKey] = []
+    public private(set) var literals: [LocalizedStringLiteral] = []
+    /// Whether the file declares a `Hashable` conformance of a localized type, e.g.
+    /// `extension LocalizedStringResource: @retroactive Hashable {}`, which lets it key a `Dictionary` or a `Set`.
+    public private(set) var declaresHashableLocalizedType = false
 
     private let sourceLocationBuilder: SourceLocationBuilder
 
@@ -112,9 +122,31 @@ public final class LocalizedStringSyntaxVisitor: PeripherySyntaxVisitor {
             arguments: node.arguments,
             trailingClosure: node.trailingClosure,
             additionalTrailingClosures: node.additionalTrailingClosures,
-            calleeToken: calleeNameToken(of: node.calledExpression)
+            calleeToken: calleeNameToken(of: node.calledExpression),
+            node: Syntax(node)
         )
         collectUnresolvedKey(node)
+    }
+
+    public func visit(_ node: ExtensionDeclSyntax) {
+        guard Self.isLocalizedType(node.extendedType.trimmedDescription),
+              let inheritedTypes = node.inheritanceClause?.inheritedTypes
+        else { return }
+
+        let hashableNames: Set = ["Hashable", "Swift.Hashable"]
+        if inheritedTypes.contains(where: { inheritedType in
+            let name = inheritedType.type.trimmedDescription.replacingOccurrences(of: "@retroactive", with: "")
+            return hashableNames.contains(name.trimmingCharacters(in: .whitespaces))
+        }) {
+            declaresHashableLocalizedType = true
+        }
+    }
+
+    public func visit(_ node: StringLiteralExprSyntax) {
+        guard let key = Self.localizationKey(of: node) else { return }
+
+        let location = sourceLocationBuilder.location(at: node.positionAfterSkippingLeadingTrivia)
+        literals.append(LocalizedStringLiteral(key: key, line: location.line, column: location.column))
     }
 
     /// `table["key"]`: the index store records the reference to the subscript accessor at the opening bracket.
@@ -123,7 +155,8 @@ public final class LocalizedStringSyntaxVisitor: PeripherySyntaxVisitor {
             arguments: node.arguments,
             trailingClosure: node.trailingClosure,
             additionalTrailingClosures: node.additionalTrailingClosures,
-            calleeToken: node.leftSquare
+            calleeToken: node.leftSquare,
+            node: Syntax(node)
         )
     }
 
@@ -269,7 +302,8 @@ public final class LocalizedStringSyntaxVisitor: PeripherySyntaxVisitor {
         arguments argumentList: LabeledExprListSyntax,
         trailingClosure: ClosureExprSyntax?,
         additionalTrailingClosures: MultipleTrailingClosureElementListSyntax,
-        calleeToken: TokenSyntax?
+        calleeToken: TokenSyntax?,
+        node: Syntax
     ) {
         var arguments = argumentList.map { argument in
             LocalizedStringCallSite.Argument(label: argument.label?.text, keys: Self.literalKeys(in: argument.expression))
@@ -292,14 +326,29 @@ public final class LocalizedStringSyntaxVisitor: PeripherySyntaxVisitor {
         }
 
         guard arguments.contains(where: { !$0.keys.isEmpty }) else { return }
+
+        let hasIndexedLiterals = !node.isInMacroExpansion
+        let isConditionallyCompiled = node.isInIfConfigClause
+
         guard let calleeToken else {
-            // The callee cannot be resolved, conservatively assume the literals are keys.
-            usedStringKeys.formUnion(arguments.flatMap(\.keys))
+            // The index store tells whether the literals are keys when it covers them, otherwise they are assumed to be
+            // keys. Without a callee reference, nothing tells that the code of an `#if` clause was compiled.
+            if hasIndexedLiterals, !isConditionallyCompiled {
+                unlocatedCallKeys.formUnion(arguments.flatMap(\.keys))
+            } else {
+                usedStringKeys.formUnion(arguments.flatMap(\.keys))
+            }
             return
         }
 
         let location = sourceLocationBuilder.location(at: calleeToken.positionAfterSkippingLeadingTrivia)
-        callSites.append(LocalizedStringCallSite(line: location.line, column: location.column, arguments: arguments))
+        callSites.append(LocalizedStringCallSite(
+            line: location.line,
+            column: location.column,
+            arguments: arguments,
+            hasIndexedLiterals: hasIndexedLiterals,
+            isConditionallyCompiled: isConditionallyCompiled
+        ))
     }
 
     private func calleeNameToken(of expression: ExprSyntax) -> TokenSyntax? {

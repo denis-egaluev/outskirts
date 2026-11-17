@@ -35,6 +35,9 @@ public final class SourceGraph {
     public private(set) var parameterAttributeNames: Set<String> = []
     public private(set) var platformConditionalNamesByFile: [SourceFile: Set<String>] = [:]
     public private(set) var usedLocalizedStringKeys: Set<String> = []
+    /// Literals passed as `Dictionary` keys or `Set` elements, keys only when `declaresHashableLocalizedType`.
+    public private(set) var hashableKeyedLocalizedStringKeys: Set<String> = []
+    public private(set) var declaresHashableLocalizedType = false
     /// Literal prefixes of keys built at runtime and looked up in the calling module's bundle, by module.
     public private(set) var runtimeLocalizedStringKeyPrefixesByModule: [String: Set<String>] = [:]
     /// Literal prefixes of keys built at runtime and looked up in an unknown bundle.
@@ -341,6 +344,14 @@ public final class SourceGraph {
 
     public func add(_ assetReference: AssetReference) {
         _ = assetReferences.insert(assetReference)
+    }
+
+    public func addHashableKeyedLocalizedStringKeys(_ keys: Set<String>) {
+        hashableKeyedLocalizedStringKeys.formUnion(keys)
+    }
+
+    public func markHashableLocalizedTypeDeclared() {
+        declaresHashableLocalizedType = true
     }
 
     public func addUsedLocalizedStringKeys(_ keys: Set<String>) {

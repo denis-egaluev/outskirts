@@ -1,0 +1,1 @@
+﻿import SwiftUI; public enum SPMByteOrderMarkKeys { public nonisolated(unsafe) static let bomLine1 = SPMLocalizedStrings.makeKeyFormatter()("mac_bom_line1_key"); nonisolated(unsafe) static let bomEnumLine1 = SPMLocalizedMessage.title("mac_bom_enum_line1_key") }

@@ -1,3 +1,4 @@
+import Extensions
 import Foundation
 import Logger
 import SystemPackage
@@ -63,7 +64,7 @@ struct ScanSummaryBuilder {
         }
 
         do {
-            return try SourceFileDeclarations(source: String(contentsOfFile: file.string, encoding: .utf8))
+            return try SourceFileDeclarations(source: String(swiftSourceAt: file))
         } catch {
             logger.warn("The summary leaves out \(file.string), which could not be read: \(error.localizedDescription)")
             return nil

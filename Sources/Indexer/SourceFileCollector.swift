@@ -143,7 +143,15 @@ public struct SourceFileCollector {
                 filesJudgedByDate += 1
             }
 
-            for tuple in Self.outdatedUnits(tuples, sourceModificationDate: sourceModificationDate, changedSinceRevision: changedSinceRevision, modificationDate: \.4) {
+            let outdatedTuples = Self.outdatedUnits(tuples, sourceModificationDate: sourceModificationDate, changedSinceRevision: changedSinceRevision, modificationDate: \.4)
+            sourceFile.hasOutdatedIndex = Self.mayBeOutdated(
+                tuples,
+                sourceModificationDate: sourceModificationDate,
+                changedSinceRevision: changedSinceRevision,
+                modificationDate: \.4
+            )
+
+            for tuple in outdatedTuples {
                 if changedSinceRevision == nil {
                     outdatedFiles[tuple.0, default: []].insert(file)
                 } else {
@@ -215,6 +223,27 @@ public struct SourceFileCollector {
 
         return units.filter { unit in
             guard let date = modificationDate(unit) else { return false }
+
+            return date < sourceModificationDate
+        }
+    }
+
+    /// Whether the units kept by `currentUnits` may describe an older version of the file: one of them is outdated, or
+    /// its date or the file's cannot be read. With `index_built_from`, git judges the files it knows.
+    static func mayBeOutdated<Unit>(
+        _ units: [Unit],
+        sourceModificationDate: Date?,
+        changedSinceRevision: Bool? = nil,
+        modificationDate: (Unit) -> Date?
+    ) -> Bool {
+        if let changedSinceRevision {
+            return changedSinceRevision
+        }
+
+        guard let sourceModificationDate else { return true }
+
+        return units.contains { unit in
+            guard let date = modificationDate(unit) else { return true }
 
             return date < sourceModificationDate
         }

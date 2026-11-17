@@ -31,6 +31,15 @@ final class SPMProjectTest: SPMSourceGraphTestCase {
             assertReferenced(.localizedString("spm_ternary_third_key"))
             assertNotReferenced(.localizedString("spm_unused_key"))
         }
+
+        func testRetainsKeysOfHashableLocalizedCollections() {
+            // `extension LocalizedStringResource: @retroactive Hashable` lets a literal key a `Dictionary` or a `Set`.
+            assertReferenced(.localizedString("spm_hashable_subscript_key"))
+            assertReferenced(.localizedString("spm_hashable_default_key"))
+            assertReferenced(.localizedString("spm_hashable_remove_key"))
+            assertReferenced(.localizedString("spm_hashable_insert_key"))
+            assertReferenced(.localizedString("spm_hashable_contains_key"))
+        }
     #endif
 
     #if os(macOS)

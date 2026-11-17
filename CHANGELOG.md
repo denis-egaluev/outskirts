@@ -1,3 +1,17 @@
+## 3.26.0 (2026-11-17)
+
+##### Breaking
+
+- On macOS, String Catalog keys are decided by the index store when it is up to date: a literal whose key is retained is one the compiler converts to `LocalizedStringKey`, `LocalizedStringResource` or `String.LocalizationValue`. Keys used only through literals that are never converted to a localized type, such as a plain `String` passed to a closure, a local function, an enum case or a generic subscript, are now reported unused, and `fix` removes them. The former conservative rules still apply on Linux, to files without index records or with an outdated index, to macro arguments, to declarations carrying attributes such as attached macros or property wrappers, to uncompiled `#if` clauses and to Objective-C callees.
+
+##### Enhancements
+
+- A literal passed to a generic subscript parameter, such as `Table<LocalizedStringResource>()["key"]`, and, in a project that makes a localized type `Hashable`, a literal used as a `Dictionary` key or a `Set` element keep their String Catalog key when the index store cannot decide.
+
+##### Bug Fixes
+
+- In a file that starts with a UTF-8 byte order mark, the declarations and literals of the first line are matched to the index store: a `public` declaration on that line was seen as `internal`, and its String Catalog keys could be reported unused.
+
 ## 3.25.0 (2026-11-15)
 
 ##### Breaking

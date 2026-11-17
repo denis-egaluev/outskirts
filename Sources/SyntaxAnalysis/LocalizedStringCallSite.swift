@@ -22,11 +22,24 @@ public struct LocalizedStringCallSite: Hashable {
     public let line: Int
     public let column: Int
     public let arguments: [Argument]
+    /// Whether the index store records the conversions of the literals at their source position: false in code a
+    /// macro may type-check in its expansion buffer, see `SyntaxProtocol.isInMacroExpansion`.
+    public let hasIndexedLiterals: Bool
+    /// Whether the call is in an `#if` clause, compiled only when the index store records a reference to its callee.
+    public let isConditionallyCompiled: Bool
 
-    public init(line: Int, column: Int, arguments: [Argument]) {
+    public init(
+        line: Int,
+        column: Int,
+        arguments: [Argument],
+        hasIndexedLiterals: Bool = true,
+        isConditionallyCompiled: Bool = false
+    ) {
         self.line = line
         self.column = column
         self.arguments = arguments
+        self.hasIndexedLiterals = hasIndexedLiterals
+        self.isConditionallyCompiled = isConditionallyCompiled
     }
 
     public var allKeys: Set<String> {
@@ -54,6 +67,21 @@ public struct LocalizedStringUnresolvedKey: Hashable {
     public init(prefix: String, bundleScope: BundleScope, line: Int, column: Int) {
         self.prefix = prefix
         self.bundleScope = bundleScope
+        self.line = line
+        self.column = column
+    }
+}
+
+/// A string literal with the catalogue key it would stand for. It is a key only when the index store records its
+/// implicit conversion to a localized type, an `init(stringLiteral:)` or `init(stringInterpolation:)` reference at the
+/// start of the literal (its opening quote, or the first `#` of a raw string).
+public struct LocalizedStringLiteral: Hashable {
+    public let key: String
+    public let line: Int
+    public let column: Int
+
+    public init(key: String, line: Int, column: Int) {
+        self.key = key
         self.line = line
         self.column = column
     }

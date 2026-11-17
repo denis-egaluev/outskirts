@@ -158,7 +158,7 @@ final class LocalizedStringCallResolverTest: XCTestCase {
         )
     }
 
-    func testRetainsTrailingClosureKeysWhenAnySkippableParameterTakesAKey() {
+    func testRetainsTrailingClosureKeysOfSkippableParametersUnlessTheIndexStoreDecides() {
         // `g(_ a: (() -> String)? = nil, _ b: () -> LocalizedStringKey)` called as `g { "key" }` passes the closure to
         // `b`; default values are not in the signature, so every candidate before the next labeled argument counts.
         let parameters = [
@@ -184,6 +184,24 @@ final class LocalizedStringCallResolverTest: XCTestCase {
             ),
             []
         )
+
+        // The index store tells which candidate takes the closure: only a closure every candidate localizes is known.
+        XCTAssertEqual(
+            LocalizedStringCallResolver.usedKeys(
+                for: [Argument(label: nil, keys: ["closure_key"], isTrailingClosure: true)],
+                parameters: parameters,
+                literalsDecidedByIndex: true
+            ),
+            []
+        )
+        XCTAssertEqual(
+            LocalizedStringCallResolver.usedKeys(
+                for: [Argument(label: nil, keys: ["closure_key"], isTrailingClosure: true)],
+                parameters: [parameters[1]],
+                literalsDecidedByIndex: true
+            ),
+            ["closure_key"]
+        )
     }
 
     func testDoesNotRetainKeysOfClosuresTakingLocalizedArguments() {
@@ -206,6 +224,56 @@ final class LocalizedStringCallResolverTest: XCTestCase {
 
         for (type, valueType) in types {
             XCTAssertEqual(LocalizedStringSyntaxVisitor.valueTypeName(of: type), valueType, type)
+        }
+    }
+
+    func testRetainsKeysPassedToGenericSubscriptParametersUnlessTheIndexStoreDecides() {
+        let cases: [(usr: String, label: String?, isKey: Bool)] = [
+            // `subscript(_: Key)` of a `Table<Key>`, which may be a `Table<LocalizedStringKey>`.
+            ("s:2cv5TableVySixcig", nil, true),
+            // `subscript<K>(generic: K)`.
+            ("s:2cv3BoxV7genericSix_tcluig", "generic", true),
+            // `Dictionary` and `Set` keys are `Hashable`, which no localized type is.
+            ("s:SDyq_Sgxcig", nil, false),
+            ("s:SDyq_x_q_yXKtcig", nil, false),
+            // A generic parameter of a function other than a subscript, e.g. `dict.removeValue(forKey:)`.
+            ("s:SD11removeValue6forKeyq_Sgx_tF", "forKey", false),
+        ]
+
+        for (usr, label, isKey) in cases {
+            let callSite = LocalizedStringCallSite(line: 1, column: 1, arguments: [Argument(label: label, keys: ["key"])])
+            XCTAssertEqual(LocalizedStringCallResolver.usedKeys(for: callSite, calleeUsrs: [usr]), isKey ? ["key"] : [], usr)
+            XCTAssertEqual(
+                LocalizedStringCallResolver.usedKeys(for: callSite, calleeUsrs: [usr], literalsDecidedByIndex: true),
+                [],
+                usr
+            )
+        }
+    }
+
+    func testCollectsDictionaryAndSetKeysForHashableLocalizedTypes() {
+        let cases: [(usr: String, arguments: [Argument], expected: Set<String>)] = [
+            // `dict["key"]`, `dict["key", default: 0]`, `dict.removeValue(forKey: "key")`.
+            ("s:SDyq_Sgxcig", [Argument(label: nil, keys: ["key"])], ["key"]),
+            ("s:SDyq_x_q_yXKtcig", [Argument(label: nil, keys: ["key"]), Argument(label: "default", keys: [])], ["key"]),
+            ("s:SD11removeValue6forKeyq_Sgx_tF", [Argument(label: "forKey", keys: ["key"])], ["key"]),
+            // `set.insert("key")`, `set.contains("key")`.
+            ("s:Sh6insertySb8inserted_x17memberAfterInserttxnF", [Argument(label: nil, keys: ["key"])], ["key"]),
+            ("s:Sh8containsySbxF", [Argument(label: nil, keys: ["key"])], ["key"]),
+            // `dict.updateValue("value", forKey: "key")`: the value is not a key.
+            (
+                "s:SD11updateValue_6forKeyq_Sgq__xtF",
+                [Argument(label: nil, keys: ["value"]), Argument(label: "forKey", keys: ["key"])],
+                ["key"]
+            ),
+            // `Array` and other types are not keyed by a `Hashable` value.
+            ("s:SayxSicig", [Argument(label: nil, keys: ["key"])], []),
+            ("s:2cv5TableVySixcig", [Argument(label: nil, keys: ["key"])], []),
+        ]
+
+        for (usr, arguments, expected) in cases {
+            let callSite = LocalizedStringCallSite(line: 1, column: 1, arguments: arguments)
+            XCTAssertEqual(LocalizedStringCallResolver.hashableKeyedKeys(for: callSite, calleeUsrs: [usr]), expected, usr)
         }
     }
 
@@ -244,10 +312,100 @@ final class LocalizedStringCallResolverTest: XCTestCase {
         }
     }
 
-    func testRetainsKeysOfUnresolvedCallee() {
+    func testRetainsKeysOfUnresolvedCalleeUnlessTheIndexStoreDecides() {
         let callSite = LocalizedStringCallSite(line: 1, column: 1, arguments: [Argument(label: nil, keys: ["key"])])
+        let objcCallee: Set = ["c:objc(cs)NSAlert(im)addButtonWithTitle:"]
+        let unmatched = [Argument(label: "unknown", keys: ["unmatched_key"])]
+        let parameters = [Parameter(label: nil, type: "Swift.String")]
 
         XCTAssertEqual(LocalizedStringCallResolver.usedKeys(for: callSite, calleeUsrs: []), ["key"])
-        XCTAssertEqual(LocalizedStringCallResolver.usedKeys(for: callSite, calleeUsrs: ["c:objc(cs)NSAlert(im)addButtonWithTitle:"]), ["key"])
+        XCTAssertEqual(LocalizedStringCallResolver.usedKeys(for: callSite, calleeUsrs: objcCallee), ["key"])
+        XCTAssertEqual(LocalizedStringCallResolver.usedKeys(for: unmatched, parameters: parameters), ["unmatched_key"])
+
+        // The index store tells the converted literals apart, an Objective-C signature stays conservative.
+        XCTAssertEqual(LocalizedStringCallResolver.usedKeys(for: callSite, calleeUsrs: [], literalsDecidedByIndex: true), [])
+        XCTAssertEqual(
+            LocalizedStringCallResolver.usedKeys(for: callSite, calleeUsrs: objcCallee, literalsDecidedByIndex: true),
+            ["key"]
+        )
+        XCTAssertEqual(
+            LocalizedStringCallResolver.usedKeys(for: unmatched, parameters: parameters, literalsDecidedByIndex: true),
+            []
+        )
+    }
+
+    func testRecognizesLiteralInitializersOfLocalizedTypes() {
+        let localized = [
+            "s:10Foundation23LocalizedStringResourceV13stringLiteralACSS_tcfc",
+            "s:7SwiftUI18LocalizedStringKeyV13stringLiteralACSS_tcfc",
+            "s:SS10FoundationE17LocalizationValueV13stringLiteralACSS_tcfc",
+            "s:10Foundation23LocalizedStringResourceV19stringInterpolationACSSAAE17LocalizationValueV0cF0V_tcfc",
+        ]
+        let notLocalized = [
+            // A project type conforming to `ExpressibleByStringLiteral`.
+            "s:3Toy7WrapperV13stringLiteralACSS_tcfc",
+            // `Swift.String.init(stringInterpolation:)`.
+            "s:SS19stringInterpolationSSs26DefaultStringInterpolationV_tcfc",
+            // A localized parameter callee, not a literal conversion.
+            "s:7SwiftUI6ButtonVA2A4TextVRszrlE_6actionACyAEGAA18LocalizedStringKeyV_yyctcfc",
+            "c:objc(cs)NSAlert(im)addButtonWithTitle:",
+        ]
+
+        for usr in localized {
+            XCTAssertTrue(LocalizedStringCallResolver.isLocalizedLiteralInitializer(usr: usr), usr)
+        }
+
+        for usr in notLocalized {
+            XCTAssertFalse(LocalizedStringCallResolver.isLocalizedLiteralInitializer(usr: usr), usr)
+        }
+    }
+
+    func testRetainsOnlyLiteralsConvertedToLocalizedTypes() {
+        typealias Position = LocalizedStringCalleePosition
+        let literals = [
+            LocalizedStringLiteral(key: "converted", line: 1, column: 7),
+            LocalizedStringLiteral(key: "second_on_line", line: 1, column: 20),
+            LocalizedStringLiteral(key: "plain", line: 2, column: 7),
+            LocalizedStringLiteral(key: "wrapper", line: 3, column: 7),
+            LocalizedStringLiteral(key: "format %@", line: 4, column: 7),
+            LocalizedStringLiteral(key: "not_indexed", line: 5, column: 7),
+        ]
+        let usrs: [Position: Set<String>] = [
+            Position(line: 1, column: 7): ["s:10Foundation23LocalizedStringResourceV13stringLiteralACSS_tcfc"],
+            Position(line: 1, column: 20): ["s:7SwiftUI18LocalizedStringKeyV13stringLiteralACSS_tcfc"],
+            Position(line: 2, column: 5): ["s:10Foundation23LocalizedStringResourceV13stringLiteralACSS_tcfc"],
+            Position(line: 3, column: 7): ["s:3Toy7WrapperV13stringLiteralACSS_tcfc"],
+            Position(line: 4, column: 7): [
+                "s:10Foundation23LocalizedStringResourceV19stringInterpolationACSSAAE17LocalizationValueV0cF0V_tcfc",
+            ],
+        ]
+
+        XCTAssertEqual(
+            LocalizedStringCallResolver.convertedLiteralKeys(literals, calleeUsrsByPosition: usrs),
+            ["converted", "second_on_line", "format %@"]
+        )
+        XCTAssertEqual(LocalizedStringCallResolver.convertedLiteralKeys(literals, calleeUsrsByPosition: [:]), [])
+    }
+
+    func testMatchesConversionsOnlyAtTheLiteralPosition() {
+        typealias Position = LocalizedStringCalleePosition
+        // `Button("preview_key") {}` in a `#Preview` body: the macro arguments are type-checked in the expansion buffer,
+        // and a conversion recorded at another position, e.g. at the `#` of the expansion, retains no key.
+        let literals = [LocalizedStringLiteral(key: "preview_key", line: 2, column: 12)]
+        let conversion: Set = ["s:7SwiftUI18LocalizedStringKeyV13stringLiteralACSS_tcfc"]
+
+        XCTAssertEqual(
+            LocalizedStringCallResolver.convertedLiteralKeys(literals, calleeUsrsByPosition: [
+                Position(line: 1, column: 1): conversion,
+                Position(line: 2, column: 5): conversion,
+                Position(line: 2, column: 11): conversion,
+                Position(line: 12, column: 2): conversion,
+            ]),
+            []
+        )
+        XCTAssertEqual(
+            LocalizedStringCallResolver.convertedLiteralKeys(literals, calleeUsrsByPosition: [Position(line: 2, column: 12): conversion]),
+            ["preview_key"]
+        )
     }
 }

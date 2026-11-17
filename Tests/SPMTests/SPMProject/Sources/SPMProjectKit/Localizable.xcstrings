@@ -1,6 +1,21 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "spm_hashable_contains_key" : {
+
+    },
+    "spm_hashable_default_key" : {
+
+    },
+    "spm_hashable_insert_key" : {
+
+    },
+    "spm_hashable_remove_key" : {
+
+    },
+    "spm_hashable_subscript_key" : {
+
+    },
     "spm_interpolated.beta" : {
 
     },

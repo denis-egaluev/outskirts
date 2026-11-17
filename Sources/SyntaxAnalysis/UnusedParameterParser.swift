@@ -1,3 +1,4 @@
+import Extensions
 import Foundation
 import SourceGraph
 import SwiftParser
@@ -125,7 +126,7 @@ struct UnusedParameterParser {
     }
 
     static func parse(file: SourceFile, parseProtocols: Bool) throws -> [Function] {
-        let source = try String(contentsOf: file.path.url, encoding: .utf8)
+        let source = try String(swiftSourceAt: file.path)
         let syntax = Parser.parse(source: source)
         let locationConverter = SourceLocationConverter(fileName: file.path.string, tree: syntax)
         return parse(

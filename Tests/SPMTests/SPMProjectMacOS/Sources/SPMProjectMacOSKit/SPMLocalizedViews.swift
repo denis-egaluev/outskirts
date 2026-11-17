@@ -153,6 +153,61 @@ public enum SPMLocalizedStrings {
         _ = describe { _ in "mac_closure_argument_string_key" }
         _ = SPMLocalizedBanner.title()
         useSubscripts()
+        useConvertedLiterals()
+        useIndexDecidedLiterals()
+    }
+
+    static func makeFormatter() -> (String) -> String {
+        { $0 }
+    }
+
+    static func makeKeyFormatter() -> (LocalizedStringKey) -> LocalizedStringKey {
+        { $0 }
+    }
+
+    static func choose(_ title: (() -> LocalizedStringKey)? = nil, _ content: () -> String) -> String {
+        _ = title?()
+        return content()
+    }
+
+    /// Literals whose parameter type the callee signature does not give: the index store tells the keys apart.
+    static func useIndexDecidedLiterals() {
+        _ = makeFormatter()("mac_unlocated_string_key")
+        _ = makeKeyFormatter()("mac_unlocated_localized_key")
+        _ = choose { "mac_skipped_closure_string_key" }
+        _ = SPMLocalizedMessage.plain("mac_enum_payload_string_key")
+        _ = SPMLocalizedMessage.title("mac_enum_payload_key")
+        #if canImport(Darwin)
+            _ = makeFormatter()("mac_conditional_unlocated_key")
+            _ = SPMLocalizedTable()[generic: "mac_conditional_string_param_key"]
+        #endif
+        #if os(Linux)
+            _ = plain("mac_uncompiled_key")
+        #endif
+    }
+
+    static func identity<T>(_ value: T) -> T {
+        value
+    }
+
+    static func build<T>(_ make: () -> T) -> T {
+        make()
+    }
+
+    /// Literals passed to generic parameters: only the index store tells the localized ones apart.
+    static func useConvertedLiterals() {
+        let count = 2
+        let generic: LocalizedStringResource = identity("mac_generic_function_key")
+        let built: LocalizedStringKey = build { "mac_generic_closure_key" }
+        let raw: LocalizedStringResource = identity(#"mac_generic_raw_key"#)
+        let multiline: LocalizedStringResource = identity("""
+        mac_generic_multiline_key
+        """)
+        let interpolated: LocalizedStringResource = identity("mac_generic_interpolated_key \(count)")
+        SPMGenericBox<LocalizedStringResource>().set("mac_generic_method_key")
+        let plain: String = identity("mac_generic_string_key")
+        let plainLiteral = "mac_plain_literal_key"
+        _ = (generic, built, raw, multiline, interpolated, plain, plainLiteral)
     }
 
     static func useSubscripts() {
@@ -165,7 +220,22 @@ public enum SPMLocalizedStrings {
         _ = table.lookUp()
         _ = table[plain: "mac_plain_subscript_key"]
         _ = counts["mac_dictionary_subscript_key"]
+        _ = counts["mac_dictionary_default_key", default: 0]
+        var removable = counts
+        _ = removable.removeValue(forKey: "mac_dictionary_remove_key")
+        _ = SPMGenericTable<LocalizedStringResource>()["mac_generic_table_key"]
+        _ = table[generic: "mac_generic_subscript_key"]
     }
+}
+
+struct SPMGenericTable<Key> {
+    subscript(_: Key) -> Int {
+        0
+    }
+}
+
+struct SPMGenericBox<Value> {
+    func set(_: Value) {}
 }
 
 struct SPMTitledItem {
@@ -180,6 +250,11 @@ public enum SPMLocalizedBanner {
     case title(LocalizedStringKey = "mac_case_default_key")
 }
 
+enum SPMLocalizedMessage {
+    case title(LocalizedStringKey)
+    case plain(String)
+}
+
 struct SPMLocalizedTable {
     static subscript(_: LocalizedStringKey) -> Int {
         0
@@ -190,6 +265,10 @@ struct SPMLocalizedTable {
     }
 
     subscript(resource _: LocalizedStringResource) -> Int {
+        0
+    }
+
+    subscript(generic _: some Hashable) -> Int {
         0
     }
 

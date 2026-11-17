@@ -14,8 +14,10 @@ private func swiftDemangle(
 /// function. The callee is identified by the USRs the index store records at the callee name token; its parameter
 /// labels and types are recovered by demangling the USR.
 ///
-/// The resolution is conservative: when the callee or the receiving parameter cannot be determined, the literal is
-/// assumed to be a key.
+/// When the callee or the receiving parameter cannot be determined, the literal is conservatively assumed to be a key,
+/// unless the index store decides: when it covers the literals of the call, a literal is a key only if the index store
+/// records its conversion to a localized type, see `convertedLiteralKeys(_:calleeUsrsByPosition:)`. An Objective-C
+/// callee, whose USR cannot be demangled, stays conservative.
 enum LocalizedStringCallResolver {
     struct Parameter: Equatable {
         let label: String?
@@ -26,8 +28,12 @@ enum LocalizedStringCallResolver {
         }
     }
 
-    static func usedKeys(for callSite: LocalizedStringCallSite, calleeUsrs: Set<String>) -> Set<String> {
-        guard !calleeUsrs.isEmpty else { return callSite.allKeys }
+    static func usedKeys(
+        for callSite: LocalizedStringCallSite,
+        calleeUsrs: Set<String>,
+        literalsDecidedByIndex: Bool = false
+    ) -> Set<String> {
+        guard !calleeUsrs.isEmpty else { return literalsDecidedByIndex ? [] : callSite.allKeys }
 
         var keys: Set<String> = []
 
@@ -39,19 +45,46 @@ enum LocalizedStringCallResolver {
             keys.formUnion(usedKeys(
                 for: callSite.arguments,
                 parameters: parameters,
-                stringKeyLabels: stringKeyLabels(ofDemangledSignature: demangled)
+                stringKeyLabels: stringKeyLabels(ofDemangledSignature: demangled),
+                genericKeyTypes: literalsDecidedByIndex ? [] : genericKeyTypes(ofDemangledSignature: demangled, parameters: parameters),
+                literalsDecidedByIndex: literalsDecidedByIndex
             ))
         }
 
         return keys
     }
 
+    /// The literals passed as the key of a `Dictionary` or the element of a `Set` (`dict["key"]`,
+    /// `dict["key", default: 0]`, `dict.removeValue(forKey: "key")`, `set.contains("key")`). They are keys only when
+    /// the project makes a localized type `Hashable`, which the caller decides.
+    static func hashableKeyedKeys(for callSite: LocalizedStringCallSite, calleeUsrs: Set<String>) -> Set<String> {
+        var keys: Set<String> = []
+
+        for usr in calleeUsrs {
+            guard let demangled = demangle(usr: usr),
+                  hashableKeyedOwners.contains(where: { demangled.hasPrefix($0) }),
+                  let parameters = parameters(fromDemangledSignature: demangled)
+            else { continue }
+
+            let normalized = parameters.map { parameter in
+                let type = parameter.type.hasPrefix("__owned ") ? String(parameter.type.dropFirst("__owned ".count)) : parameter.type
+                return Parameter(label: parameter.label, type: type)
+            }
+            keys.formUnion(usedKeys(for: callSite.arguments, parameters: normalized, genericKeyTypes: ["A"]))
+        }
+
+        return keys
+    }
+
     /// `stringKeyLabels` are the labels of the plain string parameters that take the key itself, see
-    /// `stringKeyLabels(ofDemangledSignature:)`.
+    /// `stringKeyLabels(ofDemangledSignature:)`. With `literalsDecidedByIndex`, an argument whose parameter is not known
+    /// for certain is left to the index store rather than assumed to be a key.
     static func usedKeys(
         for arguments: [LocalizedStringCallSite.Argument],
         parameters: [Parameter],
-        stringKeyLabels: Set<String?> = []
+        stringKeyLabels: Set<String?> = [],
+        genericKeyTypes: Set<String> = [],
+        literalsDecidedByIndex: Bool = false
     ) -> Set<String> {
         var keys: Set<String> = []
         var nextIndex = 0
@@ -71,11 +104,14 @@ enum LocalizedStringCallResolver {
                 }
 
                 guard let first = candidates.first else {
-                    keys.formUnion(argument.keys)
+                    if !literalsDecidedByIndex {
+                        keys.formUnion(argument.keys)
+                    }
                     continue
                 }
 
-                if candidates.contains(where: { LocalizedStringSyntaxVisitor.isLocalizedType(parameters[$0].type) }) {
+                let isLocalized = { LocalizedStringSyntaxVisitor.isLocalizedType(parameters[$0].type) }
+                if literalsDecidedByIndex ? candidates.allSatisfy(isLocalized) : candidates.contains(where: isLocalized) {
                     keys.formUnion(argument.keys)
                 }
 
@@ -92,14 +128,17 @@ enum LocalizedStringCallResolver {
             }
 
             guard let parameter else {
-                // The argument could not be matched to a parameter, assume the literals are keys.
-                keys.formUnion(argument.keys)
+                // The argument could not be matched to a parameter: the literals are keys unless the index store decides.
+                if !literalsDecidedByIndex {
+                    keys.formUnion(argument.keys)
+                }
                 continue
             }
 
             lastMatched = parameter
 
             if LocalizedStringSyntaxVisitor.isLocalizedType(parameter.type)
+                || genericKeyTypes.contains(parameter.type)
                 || (stringKeyLabels.contains(parameter.label) && stringKeyTypes.contains(parameter.type))
             {
                 keys.formUnion(argument.keys)
@@ -107,6 +146,42 @@ enum LocalizedStringCallResolver {
         }
 
         return keys
+    }
+
+    /// The keys of the literals the index store records as converted to a localized type: an `init(stringLiteral:)`
+    /// or `init(stringInterpolation:)` reference of a localized type at the start of the literal. A literal without
+    /// such a reference, e.g. when the toolchain does not record the conversion, is left to the other rules.
+    static func convertedLiteralKeys(
+        _ literals: [LocalizedStringLiteral],
+        calleeUsrsByPosition: [LocalizedStringCalleePosition: Set<String>]
+    ) -> Set<String> {
+        literals.reduce(into: []) { keys, literal in
+            let usrs = calleeUsrsByPosition[LocalizedStringCalleePosition(line: literal.line, column: literal.column)] ?? []
+            if usrs.contains(where: isLocalizedLiteralInitializer(usr:)) {
+                keys.insert(literal.key)
+            }
+        }
+    }
+
+    /// Whether the USR is the `init(stringLiteral:)` or `init(stringInterpolation:)` of a localized type, e.g.
+    /// `Foundation.LocalizedStringResource.init(stringLiteral: Swift.String)`.
+    static func isLocalizedLiteralInitializer(usr: String) -> Bool {
+        guard usr.contains("13stringLiteral") || usr.contains("19stringInterpolation"),
+              let demangled = demangle(usr: usr)
+        else { return false }
+
+        let characters = Array(demangled)
+        guard let open = parameterListStart(in: characters),
+              let first = parameters(fromDemangledSignature: demangled)?.first,
+              literalInitializerLabels.contains(first.label)
+        else { return false }
+
+        let name = droppingGenericClause(String(characters[..<open])[...])
+        guard name.hasSuffix(".init") else { return false }
+
+        let owner = droppingGenericClause(name.dropLast(".init".count))
+        let ownerName = owner.split(separator: ".").last.map(String.init) ?? ""
+        return LocalizedStringSyntaxVisitor.localizedTypeNames.contains(ownerName)
     }
 
     static func demangle(usr: String) -> String? {
@@ -155,9 +230,38 @@ enum LocalizedStringCallResolver {
         return owner.hasSuffix("Swift.String") ? ["localized"] : []
     }
 
+    /// The generic parameter types of a subscript whose argument may be a key: the index store records the
+    /// unspecialized accessor, so `table["key"]` on a `Table<LocalizedStringKey>` cannot be told apart from a
+    /// `Table<String>`, conservatively both are keys. `Dictionary` and `Set` are left out: their keys are `Hashable`, which
+    /// none of the localized types is.
+    static func genericKeyTypes(ofDemangledSignature signature: String, parameters: [Parameter]) -> Set<String> {
+        let characters = Array(signature)
+        guard let open = parameterListStart(in: characters) else { return [] }
+
+        let name = String(characters[..<open])
+        guard name.contains(".subscript."),
+              !hashableKeyedOwners.contains(where: { name.hasPrefix($0) })
+        else { return [] }
+
+        return Set(parameters.map(\.type).filter(isGenericParameter))
+    }
+
     // MARK: - Private
 
+    /// `A`, `B1` or `τ_0_0`: a bare generic parameter, as printed by the demangler.
+    private static func isGenericParameter(_ type: String) -> Bool {
+        if type.hasPrefix("τ_") {
+            return type.dropFirst(2).allSatisfy { $0.isNumber || $0 == "_" }
+        }
+
+        guard let first = type.first, first.isUppercase, first.isASCII else { return false }
+
+        return type.dropFirst().allSatisfy(\.isNumber)
+    }
+
     private static let stringKeyTypes: Set = ["Swift.String", "Swift.StaticString"]
+    private static let literalInitializerLabels: Set<String?> = ["stringLiteral", "stringInterpolation"]
+    private static let hashableKeyedOwners = ["Swift.Dictionary.", "Swift.Set."]
 
     /// `Name<A where A: P>` without its trailing generic clause.
     private static func droppingGenericClause(_ text: Substring) -> Substring {

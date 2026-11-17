@@ -7,6 +7,9 @@ public final class SourceFile {
     public var importStatements: [ImportStatement] = []
     public var importsSwiftTesting = false
     public var usesDistributedModifier = false
+    /// Whether the index store may describe an older version of the file: a unit written before the file was last
+    /// modified or of unknown date, or the file changed since `index_built_from`, see `SourceFileCollector.mayBeOutdated`.
+    public var hasOutdatedIndex = false
 
     public init(path: FilePath, modules: Set<String>) {
         self.path = path

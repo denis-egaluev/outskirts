@@ -26,7 +26,9 @@ final class LocalizedStringRetainer: SourceGraphMutator {
 
     func mutate() throws {
         let matcher = try LocalizedStringKeyMatcher(
-            usedKeys: graph.usedLocalizedStringKeys.union(unprefixedRuntimeLookupCandidateKeys()),
+            usedKeys: graph.usedLocalizedStringKeys
+                .union(unprefixedRuntimeLookupCandidateKeys())
+                .union(graph.declaresHashableLocalizedType ? graph.hashableKeyedLocalizedStringKeys : []),
             patterns: configuration.localizedStringKeyPatterns
         )
 

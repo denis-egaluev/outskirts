@@ -90,7 +90,7 @@ struct SwiftSyntaxFactCollector {
         }
 
         if let localizedStringSyntaxVisitor {
-            collectUsedLocalizedStringKeys(using: localizedStringSyntaxVisitor, calleeUsrsByPosition: referenceSites.calleeUsrsByPosition)
+            collectUsedLocalizedStringKeys(using: localizedStringSyntaxVisitor, referenceSites: referenceSites)
 
             if !stringLiterals.isEmpty {
                 graph.withLock { graph in
@@ -176,23 +176,66 @@ struct SwiftSyntaxFactCollector {
         }
     }
 
+    /// Whether the index store records the conversions of literals to localized types: the localized types only
+    /// exist in the Apple SDKs.
+    private static let indexRecordsLocalizedLiteralConversions: Bool = {
+        #if canImport(Darwin)
+            true
+        #else
+            false
+        #endif
+    }()
+
+    /// Literals whose parameter type cannot be resolved (callee unknown or not located, argument not matched, generic
+    /// subscript parameter, `Dictionary` or `Set` key) are conservatively assumed to be keys, unless the index store
+    /// covers them: a record of the file was read and does not describe an older version of it (see
+    /// `SourceFile.hasOutdatedIndex`), the literal is not in code a macro may expand, and a
+    /// call in an `#if` clause has a recorded callee, which tells that the clause was compiled. Then only the
+    /// literals whose conversion to a localized type the index store records are keys.
     private func collectUsedLocalizedStringKeys(
         using visitor: LocalizedStringSyntaxVisitor,
-        calleeUsrsByPosition: [LocalizedStringCalleePosition: Set<String>]
+        referenceSites: SwiftIndexStoreReader.ReferenceSites
     ) {
-        var keys = visitor.usedStringKeys
+        let calleeUsrsByPosition = referenceSites.calleeUsrsByPosition
+        let indexDecides = Self.indexRecordsLocalizedLiteralConversions && referenceSites.hasRecords
+            && !sourceFile.hasOutdatedIndex
+        var keys = visitor.usedStringKeys.union(LocalizedStringCallResolver.convertedLiteralKeys(
+            visitor.literals,
+            calleeUsrsByPosition: calleeUsrsByPosition
+        ))
+        var hashableKeyedKeys: Set<String> = []
+
+        if !indexDecides {
+            keys.formUnion(visitor.unlocatedCallKeys)
+        }
 
         for callSite in visitor.callSites {
             let position = LocalizedStringCalleePosition(line: callSite.line, column: callSite.column)
             let calleeUsrs = calleeUsrsByPosition[position] ?? []
-            keys.formUnion(LocalizedStringCallResolver.usedKeys(for: callSite, calleeUsrs: calleeUsrs))
+            let decided = indexDecides && callSite.hasIndexedLiterals
+                && (!callSite.isConditionallyCompiled || !calleeUsrs.isEmpty)
+            keys.formUnion(LocalizedStringCallResolver.usedKeys(
+                for: callSite,
+                calleeUsrs: calleeUsrs,
+                literalsDecidedByIndex: decided
+            ))
+
+            if !decided {
+                hashableKeyedKeys.formUnion(LocalizedStringCallResolver.hashableKeyedKeys(for: callSite, calleeUsrs: calleeUsrs))
+            }
         }
 
         collectRuntimeLocalizedStringKeys(visitor.unresolvedKeys)
 
-        guard !keys.isEmpty else { return }
+        guard !keys.isEmpty || !hashableKeyedKeys.isEmpty || visitor.declaresHashableLocalizedType else { return }
 
-        graph.withLock { $0.addUsedLocalizedStringKeys(keys) }
+        graph.withLock {
+            $0.addUsedLocalizedStringKeys(keys)
+            $0.addHashableKeyedLocalizedStringKeys(hashableKeyedKeys)
+            if visitor.declaresHashableLocalizedType {
+                $0.markHashableLocalizedTypeDeclared()
+            }
+        }
     }
 
     /// Keys built at runtime retain the catalogue keys starting with their literal prefix: in the catalogues of

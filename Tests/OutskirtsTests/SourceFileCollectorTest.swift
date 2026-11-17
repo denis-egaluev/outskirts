@@ -152,6 +152,30 @@ final class SourceFileCollectorTest: XCTestCase {
         XCTAssertEqual(outdated(units, sourceModificationDate: edited), ["ios"])
     }
 
+    /// The index store decides literal keys from positions only when it describes the current file.
+    func testUnknownDates_mayBeOutdated() {
+        let fresh = Unit(name: "fresh", module: "Kit", date: edited.addingTimeInterval(60))
+        let undated = Unit(name: "undated", module: "Kit", date: nil)
+        let stale = Unit(name: "stale", module: "Kit", date: edited.addingTimeInterval(-60))
+
+        XCTAssertFalse(SourceFileCollector.mayBeOutdated([fresh], sourceModificationDate: edited, modificationDate: \.date))
+        XCTAssertTrue(SourceFileCollector.mayBeOutdated([fresh, stale], sourceModificationDate: edited, modificationDate: \.date))
+        XCTAssertTrue(SourceFileCollector.mayBeOutdated([fresh, undated], sourceModificationDate: edited, modificationDate: \.date))
+        XCTAssertTrue(SourceFileCollector.mayBeOutdated([fresh], sourceModificationDate: nil, modificationDate: \.date))
+        XCTAssertFalse(SourceFileCollector.mayBeOutdated(
+            [stale],
+            sourceModificationDate: edited,
+            changedSinceRevision: false,
+            modificationDate: \.date
+        ))
+        XCTAssertTrue(SourceFileCollector.mayBeOutdated(
+            [fresh],
+            sourceModificationDate: edited,
+            changedSinceRevision: true,
+            modificationDate: \.date
+        ))
+    }
+
     func testUnknownDates_areNotOutdated() {
         let units = [
             Unit(name: "undated", module: "Kit", date: nil),

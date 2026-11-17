@@ -153,6 +153,78 @@ final class LocalizedStringSyntaxVisitorTest: XCTestCase {
         XCTAssertEqual(usedKeys, [#"raw "quoted" \n %@"#, "raw \n \"x\" %@"])
     }
 
+    func testRecordsLiteralsAtTheirOpeningDelimiter() throws {
+        let literals = try visit(##"""
+        f("first", g("second \(n)"))
+        f(#"raw "q""#)
+        f("""
+            multi
+            """)
+        """##).literals
+
+        XCTAssertEqual(literals, [
+            LocalizedStringLiteral(key: "first", line: 1, column: 3),
+            LocalizedStringLiteral(key: "second %@", line: 1, column: 14),
+            LocalizedStringLiteral(key: #"raw "q""#, line: 2, column: 3),
+            LocalizedStringLiteral(key: "multi", line: 3, column: 3),
+        ])
+    }
+
+    func testKeepsSourcePositionsAndConservativeKeysOfMacroArguments() throws {
+        let visitor = try visit("""
+        #Preview {
+            Button("preview_key") {}
+        }
+        _ = #stringify(makeFormatter()("macro_unlocated_key"))
+        """)
+
+        // The literals keep their source position, where a conversion recorded in the expansion buffer does not land.
+        XCTAssertEqual(visitor.literals, [
+            LocalizedStringLiteral(key: "preview_key", line: 2, column: 12),
+            LocalizedStringLiteral(key: "macro_unlocated_key", line: 4, column: 32),
+        ])
+        // A callee that cannot be located in a macro argument stays conservatively retained.
+        XCTAssertEqual(visitor.usedStringKeys, ["macro_unlocated_key"])
+        XCTAssertEqual(visitor.unlocatedCallKeys, [])
+        XCTAssertEqual(visitor.callSites.map(\.hasIndexedLiterals), [false])
+    }
+
+    func testCountsTheByteOrderMarkInFirstLineColumns() throws {
+        let literals = try visit("\u{FEFF}_ = f()(\"bom_key\")\n_ = f()(\"second_line_key\")").literals
+
+        XCTAssertEqual(literals, [
+            LocalizedStringLiteral(key: "bom_key", line: 1, column: 12),
+            LocalizedStringLiteral(key: "second_line_key", line: 2, column: 9),
+        ])
+    }
+
+    func testKeepsConservativeKeysInDeclarationsOfAttachedMacros() throws {
+        let visitor = try visit("""
+        @Traced func traced() {
+            _ = makeFormatter()("body_macro_key")
+            _ = format("body_macro_call_key")
+        }
+        struct Settings {
+            @Wrapped(name: makeFormatter()("wrapped_key")) var value = 1
+            @MainActor @discardableResult func plain() -> Int {
+                _ = makeFormatter()("builtin_attribute_key")
+                return 0
+            }
+        }
+        @Observable final class Model {
+            func load() {
+                _ = makeFormatter()("observable_key")
+                _ = format("observable_call_key")
+            }
+        }
+        """)
+
+        // An attribute that may be an attached macro rewriting its declaration keeps the conservative rule.
+        XCTAssertEqual(visitor.usedStringKeys, ["body_macro_key", "wrapped_key"])
+        XCTAssertEqual(visitor.unlocatedCallKeys, ["builtin_attribute_key", "observable_key"])
+        XCTAssertEqual(visitor.callSites.map(\.hasIndexedLiterals), [false, true])
+    }
+
     func testIgnoresTextVerbatim() throws {
         let usedKeys = try collectUsedStringKeys(from: """
         Text(verbatim: "not_a_key")
@@ -546,12 +618,20 @@ final class LocalizedStringSyntaxVisitorTest: XCTestCase {
         XCTAssertEqual(usedKeys, ["closure_key_key", "optional_closure_key"])
     }
 
-    func testRetainsLiteralsPassedToUnlocatableCallees() throws {
-        let usedKeys = try collectUsedStringKeys(from: """
+    func testLeavesLiteralsOfUnlocatableCalleesToTheIndexStore() throws {
+        let visitor = try visit("""
         makeFormatter()("closure_key")
+        #if DEBUG
+        makeFormatter()("conditional_key")
+        f("conditional_call_key")
+        #endif
         """)
 
-        XCTAssertEqual(usedKeys, ["closure_key"])
+        XCTAssertEqual(visitor.unlocatedCallKeys, ["closure_key"])
+        // Without a callee reference, nothing tells that the code of an `#if` clause was compiled.
+        XCTAssertEqual(visitor.usedStringKeys, ["conditional_key"])
+        XCTAssertEqual(visitor.callSites.map(\.isConditionallyCompiled), [true])
+        XCTAssertEqual(visitor.callSites.map(\.hasIndexedLiterals), [true])
     }
 
     func testRecordsSubscriptCallSitesAtTheOpeningBracket() throws {
@@ -585,10 +665,75 @@ final class LocalizedStringSyntaxVisitorTest: XCTestCase {
         XCTAssertEqual(visitor.usedStringKeys, [])
     }
 
+    func testDetectsMultilineLiteralsByTheirRuntimeValue() throws {
+        let visitor = try visit(#"""
+        struct Help {
+            var body: some View {
+                Toggle("toggle", isOn: .constant(true))
+                    .help(String(localized: """
+                        Match the name against a regular expression. \
+                        Use anchors (^/$) or classes (\\d, \\w) to refine "matches".
+                        """))
+                Text("""
+                    First line
+                      Indented line
+                    """)
+            }
+        }
+        let key = LocalizedStringKey("""
+            Joined \
+            line
+            """)
+        let legacy = NSLocalizedString("""
+            Tab\tand \u{41}
+            """, comment: "")
+        let format = String(localized: """
+            Scanned the last \(days) days. \
+            Older items are skipped.
+            """)
+        let runtime = NSLocalizedString("""
+            menu.\
+            row.\(id)
+            """, comment: "")
+        """#)
+
+        XCTAssertEqual(visitor.usedStringKeys, [
+            #"Match the name against a regular expression. Use anchors (^/$) or classes (\d, \w) to refine "matches"."#,
+            "First line\n  Indented line",
+            "Joined line",
+            "Tab\tand A",
+            "Scanned the last %@ days. Older items are skipped.",
+            "menu.row.%@",
+        ])
+        XCTAssertEqual(visitor.unresolvedKeys.map(\.prefix), ["menu.row."])
+    }
+
     // MARK: - Private
 
     private func collectCallSites(from source: String) throws -> [LocalizedStringCallSite] {
         try visit(source).callSites
+    }
+
+    func testDetectsHashableConformancesOfLocalizedTypes() throws {
+        let declaring = [
+            "extension LocalizedStringResource: @retroactive Hashable {}",
+            "extension LocalizedStringKey: Hashable {}",
+            "extension String.LocalizationValue: @retroactive Swift.Hashable {}",
+            "extension Foundation.LocalizedStringResource: Sendable, @retroactive Hashable {}",
+        ]
+        let notDeclaring = [
+            "extension LocalizedStringResource: CustomStringConvertible {}",
+            "extension MyKey: Hashable {}",
+            "extension LocalizedStringKey {}",
+        ]
+
+        for source in declaring {
+            XCTAssertTrue(try visit(source).declaresHashableLocalizedType, source)
+        }
+
+        for source in notDeclaring {
+            XCTAssertFalse(try visit(source).declaresHashableLocalizedType, source)
+        }
     }
 
     private func collectUsedStringKeys(from source: String) throws -> Set<String> {

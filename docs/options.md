@@ -150,7 +150,7 @@ Git revision the index store was built from, e.g. the commit of the build that w
 
 Key `index_built_from` · string · default none.
 
-See [Continuous integration: Reusing the build](ci.md#reusing-the-build), [Troubleshooting: Index data restored from another checkout](troubleshooting.md#index-data-restored-from-another-checkout).
+See [Analysis: How a key is found](analysis.md#how-a-key-is-found), [Continuous integration: Reusing the build](ci.md#reusing-the-build), [Troubleshooting: Index data restored from another checkout](troubleshooting.md#index-data-restored-from-another-checkout).
 
 ### `--json-package-manifest-path`
 

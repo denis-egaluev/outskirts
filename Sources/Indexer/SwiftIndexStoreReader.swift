@@ -50,6 +50,8 @@ struct SwiftIndexStoreReader {
     struct ReferenceSites {
         var calleeUsrsByPosition: [LocalizedStringCalleePosition: Set<String>] = [:]
         var metalFunctionDescriptorNameLocations: Set<Location> = []
+        /// Whether a record of the file was read, so that a position without a reference is known to have none.
+        var hasRecords = false
     }
 
     struct Records {
@@ -74,6 +76,7 @@ struct SwiftIndexStoreReader {
         for unit in units {
             for recordName in unit.unit.recordNames {
                 let record = try RecordReader(indexStore: unit.store, recordName: recordName)
+                records.referenceSites.hasRecords = true
 
                 record.forEach(occurrence: { occurrence in
                     let usr = occurrence.symbol.usr
