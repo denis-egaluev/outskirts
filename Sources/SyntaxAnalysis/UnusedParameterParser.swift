@@ -94,6 +94,18 @@ struct Closure: Item {
     let items: [Item]
 }
 
+/// A statement whose pattern binds names visible only in part of it, such as the body of a `for` loop or of an
+/// `if let`. The outer items, such as the sequence or the else branch, are evaluated in the enclosing scope.
+struct BindingScope: Item {
+    let names: [String]
+    let outerItems: [Item]
+    let innerItems: [Item]
+
+    var items: [Item] {
+        outerItems + innerItems
+    }
+}
+
 struct Identifier: Item {
     let name: String
     let items: [Item] = []
@@ -187,11 +199,23 @@ struct UnusedParameterParser {
             parse(functionDecl: node, collector)
         } else if let node = node.as(InitializerDeclSyntax.self) {
             parse(initializerDecl: node, collector)
+        } else if let node = node.as(ForStmtSyntax.self) {
+            parse(forStmt: node, collector)
+        } else if let node = node.as(IfExprSyntax.self) {
+            parse(ifExpr: node, collector)
+        } else if let node = node.as(WhileStmtSyntax.self) {
+            parse(whileStmt: node, collector)
+        } else if let node = node.as(GuardStmtSyntax.self) {
+            parse(guardStmt: node, collector)
+        } else if let node = node.as(SwitchCaseSyntax.self) {
+            parse(switchCase: node, collector)
+        } else if let node = node.as(CatchClauseSyntax.self) {
+            parse(catchClause: node, collector)
         } else if let optBindingCondition = node.as(OptionalBindingConditionSyntax.self) {
             if optBindingCondition.initializer == nil,
                let pattern = optBindingCondition.pattern.as(IdentifierPatternSyntax.self),
                let parentStmt = optBindingCondition.parent?.parent?.parent,
-               parentStmt.is(IfExprSyntax.self) || parentStmt.is(GuardStmtSyntax.self)
+               parentStmt.is(IfExprSyntax.self) || parentStmt.is(GuardStmtSyntax.self) || parentStmt.is(WhileStmtSyntax.self)
             {
                 // Handle `let x {}` syntax.
                 parse(identifier: pattern.identifier)
@@ -285,14 +309,111 @@ struct UnusedParameterParser {
 
     private func parse(closureExpr syntax: ClosureExprSyntax, _ collector: Collector<some Any>?) -> Closure? {
         let signature = syntax.children(viewMode: .sourceAccurate).mapFirst { $0.as(ClosureSignatureSyntax.self) }
-        let rawParams = signature?.parameterClause?.children(viewMode: .sourceAccurate).compactMap { $0.as(ClosureShorthandParameterSyntax.self) }
-        let params = rawParams?.map(\.name.text) ?? []
+        let params: [String] = switch signature?.parameterClause {
+        case let .simpleInput(shorthandParams):
+            shorthandParams.map(\.name.text)
+        case let .parameterClause(clause):
+            clause.parameters.map { ($0.secondName ?? $0.firstName).text }
+        case nil:
+            []
+        }
 
         // Parse capture list expressions (e.g., [captured = state.someProperty])
         let captureItems = signature?.capture?.items.compactMap { parse(node: $0.initializer?.value, collector) } ?? []
 
         let bodyItems = syntax.statements.compactMap { parse(node: $0.item, collector) }
         return Closure(params: params, items: captureItems + bodyItems)
+    }
+
+    private func parse(forStmt syntax: ForStmtSyntax, _ collector: Collector<some Any>?) -> Item {
+        BindingScope(
+            names: boundNames(in: syntax.pattern),
+            outerItems: parse(nodes: [syntax.pattern, syntax.sequence], collector),
+            innerItems: parse(nodes: [syntax.whereClause, syntax.body], collector)
+        )
+    }
+
+    private func parse(ifExpr syntax: IfExprSyntax, _ collector: Collector<some Any>?) -> Item {
+        // A condition may use a name bound by an earlier condition, counting every condition as a use is the safe side.
+        BindingScope(
+            names: boundNames(in: syntax.conditions),
+            outerItems: parse(nodes: [syntax.conditions, syntax.elseBody], collector),
+            innerItems: parse(nodes: [syntax.body], collector)
+        )
+    }
+
+    private func parse(whileStmt syntax: WhileStmtSyntax, _ collector: Collector<some Any>?) -> Item {
+        BindingScope(
+            names: boundNames(in: syntax.conditions),
+            outerItems: parse(nodes: [syntax.conditions], collector),
+            innerItems: parse(nodes: [syntax.body], collector)
+        )
+    }
+
+    private func parse(guardStmt syntax: GuardStmtSyntax, _ collector: Collector<some Any>?) -> Item {
+        // The names bound by a guard are visible in the statements that follow it, not in its else branch.
+        Variable(
+            names: boundNames(in: syntax.conditions),
+            items: parse(nodes: [syntax.conditions, syntax.body], collector)
+        )
+    }
+
+    private func parse(switchCase syntax: SwitchCaseSyntax, _ collector: Collector<some Any>?) -> Item {
+        guard case let .case(label) = syntax.label else {
+            return BindingScope(names: [], outerItems: [], innerItems: parse(nodes: [syntax.statements], collector))
+        }
+
+        return BindingScope(
+            names: label.caseItems.flatMap { boundNames(in: $0.pattern) },
+            outerItems: parse(nodes: label.caseItems.map(\.pattern), collector),
+            innerItems: parse(nodes: label.caseItems.map(\.whereClause) + [syntax.statements], collector)
+        )
+    }
+
+    private func parse(catchClause syntax: CatchClauseSyntax, _ collector: Collector<some Any>?) -> Item {
+        // A catch clause without a pattern implicitly binds `error`.
+        let names = syntax.catchItems.isEmpty ? ["error"] : syntax.catchItems.flatMap { boundNames(in: $0.pattern) }
+
+        return BindingScope(
+            names: names,
+            outerItems: parse(nodes: syntax.catchItems.map(\.pattern), collector),
+            innerItems: parse(nodes: syntax.catchItems.map(\.whereClause) + [syntax.body], collector)
+        )
+    }
+
+    private func parse(nodes: [(any SyntaxProtocol)?], _ collector: Collector<some Any>?) -> [Item] {
+        nodes.compactMap { parse(node: $0, collector) }
+    }
+
+    /// The names bound by the patterns of a node, closures excluded since their bindings are their own.
+    private func boundNames(in node: (any SyntaxProtocol)?) -> [String] {
+        guard let node else { return [] }
+
+        if let pattern = node.as(IdentifierPatternSyntax.self) {
+            return [pattern.identifier.identifier?.name ?? pattern.identifier.text]
+        }
+
+        if node.is(ClosureExprSyntax.self) {
+            return []
+        }
+
+        if let condition = node.as(OptionalBindingConditionSyntax.self) {
+            // A shorthand binding such as `if let x` both uses and shadows the param, its use is parsed separately.
+            return boundNames(in: condition.pattern)
+        }
+
+        if let condition = node.as(ConditionElementSyntax.self) {
+            switch condition.condition {
+            case let .optionalBinding(binding):
+                return boundNames(in: binding)
+            case let .matchingPattern(matching):
+                return boundNames(in: matching.pattern)
+            default:
+                return []
+            }
+        }
+
+        return node.children(viewMode: .sourceAccurate).flatMap { boundNames(in: $0) }
     }
 
     private func parse(variableDecl syntax: VariableDeclSyntax, _ collector: Collector<some Any>?) -> Variable {

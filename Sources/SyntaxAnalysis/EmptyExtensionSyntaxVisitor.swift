@@ -29,7 +29,7 @@ public final class EmptyExtensionSyntaxVisitor: PeripherySyntaxVisitor {
         let result = Result(
             extendedTypeName: node.extendedType.trimmedDescription,
             location: sourceLocationBuilder.location(at: node.extendedType.positionAfterSkippingLeadingTrivia),
-            commentCommands: CommentCommand.parseCommands(in: node.leadingTrivia)
+            commentCommands: CommentCommand.parseCommands(in: node.commentCommandTrivia)
         )
         results.append(result)
     }

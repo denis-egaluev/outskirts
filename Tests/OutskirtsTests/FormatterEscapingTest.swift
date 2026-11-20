@@ -117,6 +117,11 @@ final class FormatterEscapingTest: XCTestCase {
         XCTAssertEqual(try xcode(results(name: "Settings.Title_1", path: "/p/Tagged.swift")), "/p/Tagged.swift:2:20: warning: Unused localized string 'Settings.Title_1'")
     }
 
+    func testXcode_pathWithoutAnExtension_keepsItsRealFileName_doesNotRegress() throws {
+        XCTAssertEqual(try xcode(results(name: "key", path: "/p/Makefile")), "/p/Makefile:2:20: warning: Unused localized string 'key'")
+        XCTAssertEqual(try xcode(results(name: "key", path: "/p/.generated")), "/p/.generated:2:20: warning: Unused localized string 'key'")
+    }
+
     func testXcode_colored_escapesAnEscapeCharacterFromTheNameOrPath_andKeepsItsOwnColors() throws {
         let coloredLogger = Logger(quiet: true, verbose: false, colorMode: .always)
         let formatter = XcodeFormatter(configuration: Configuration(), logger: coloredLogger)

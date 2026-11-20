@@ -142,8 +142,9 @@ public final class GenericProjectDriver {
 extension GenericProjectDriver: ProjectDriver {
     public func plan(logger: ContextualLogger) throws -> IndexPlan {
         try validateListedFiles()
+        let indexStorePaths = Set(configuration.indexStorePath).union(indexstorePaths)
         let collector = SourceFileCollector(
-            indexStorePaths: Set(configuration.indexStorePath).union(indexstorePaths),
+            indexStorePaths: indexStorePaths,
             excludedModules: configuration.excludeTests ? testTargets : [],
             scanInputs: ScanInputs(
                 sourceFiles: nil,
@@ -163,7 +164,8 @@ extension GenericProjectDriver: ProjectDriver {
             xcDataModelPaths: xcDataModelsPaths,
             xcMappingModelPaths: xcMappingModelsPaths,
             xcStringsPaths: xcStringsPaths,
-            unreadableUnits: unreadableUnits
+            unreadableUnits: unreadableUnits,
+            indexStorePaths: indexStorePaths
         )
     }
 }

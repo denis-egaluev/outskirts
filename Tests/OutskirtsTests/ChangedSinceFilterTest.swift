@@ -252,4 +252,23 @@ final class ChangedSinceFilterTest: XCTestCase {
         XCTAssertEqual(parsed.first?.file, "Sources/A.swift")
         XCTAssertEqual(parsed.first?.ranges, [2 ..< 3, 7 ..< 7, 10 ..< 13])
     }
+
+    func testParseHunksAddedLineLookingLikeHeader_doesNotRegress() {
+        let patch = """
+        diff --git Sources/A.swift Sources/A.swift
+        --- Sources/A.swift
+        +++ Sources/A.swift
+        @@ -2,0 +3,2 @@
+        +++ x
+        +--- y
+        @@ -9 +11 @@
+        -a
+        +b
+        """
+
+        let parsed = ChangedSinceFilter.parseHunksForTesting(patch)
+        XCTAssertEqual(parsed.count, 1)
+        XCTAssertEqual(parsed.first?.file, "Sources/A.swift")
+        XCTAssertEqual(parsed.first?.ranges, [3 ..< 5, 11 ..< 12])
+    }
 }

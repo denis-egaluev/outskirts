@@ -41,13 +41,16 @@ final class XcodeFormatter: OutputFormatter {
             dir += "/"
         }
 
-        let file = colorize(text(path.lastComponent?.stem ?? ""), .bold, colored: colored)
-        let ext = text(path.extension ?? "swift")
+        let fileName: String = if let ext = path.extension, let stem = path.lastComponent?.stem {
+            colorize(text(stem), .bold, colored: colored) + text(".\(ext)")
+        } else {
+            colorize(text(path.lastComponent?.string ?? ""), .bold, colored: colored)
+        }
         let lineNum = colorize(String(location.line), .bold, colored: colored)
         let column = location.column
         let warning = colorize("warning:", .boldYellow, colored: colored)
 
-        return "\(dir)\(file).\(ext):\(lineNum):\(column): \(warning) "
+        return "\(dir)\(fileName):\(lineNum):\(column): \(warning) "
     }
 
     private func colorize(_ text: String, _ color: ANSIColor, colored: Bool) -> String {

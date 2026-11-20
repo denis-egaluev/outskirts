@@ -131,11 +131,14 @@ public final class ChangedSinceFilter {
         static func parseHunks(_ patch: String) -> [(file: String, ranges: [Range<Int>])] {
             var out: [(file: String, ranges: [Range<Int>])] = []
             var current: Int?
+            // A `+++ ` line is a file header only before the file's first hunk; inside a hunk it is an added line.
+            var inFileHeader = false
 
             for line in patch.split(separator: "\n", omittingEmptySubsequences: false) {
                 if line.hasPrefix("diff --git ") {
                     current = nil
-                } else if line.hasPrefix("+++ ") {
+                    inFileHeader = true
+                } else if inFileHeader, line.hasPrefix("+++ ") {
                     var name = String(line.dropFirst(4))
                     if name.hasSuffix("\t") {
                         name.removeLast()
@@ -146,8 +149,11 @@ public final class ChangedSinceFilter {
                         out.append((unquote(name), []))
                         current = out.count - 1
                     }
-                } else if line.hasPrefix("@@ "), let current, let range = newRange(inHunkHeader: line) {
-                    out[current].ranges.append(range)
+                } else if line.hasPrefix("@@ ") {
+                    inFileHeader = false
+                    if let current, let range = newRange(inHunkHeader: line) {
+                        out[current].ranges.append(range)
+                    }
                 }
             }
 

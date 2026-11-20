@@ -24,6 +24,62 @@ final class UnusedParameterTest: XCTestCase {
         assertUnused(label: "param", name: "param", in: "shadowedInEveryClosure(param:)")
     }
 
+    func testShadowedByParenthesizedClosureParameter() {
+        analyze()
+        assertUnused(label: "param", name: "param", in: "typedParameter(param:)")
+        assertUnused(label: "param", name: "param", in: "untypedParameters(param:)")
+        assertUsed(label: "param", name: "param", in: "usedOutsideClosure(param:)")
+    }
+
+    func testShadowedByForInPattern() {
+        analyze()
+        assertUnused(label: "param", name: "param", in: "shadowed(param:items:)")
+        assertUnused(label: "param", name: "param", in: "shadowedInTuple(param:items:)")
+        assertUsed(label: "param", name: "param", in: "usedInSequence(param:)")
+        assertUsed(label: "param", name: "param", in: "usedAfterLoop(param:items:)")
+    }
+
+    func testShadowedByOptionalBinding() {
+        analyze()
+        assertUnused(label: "param", name: "param", in: "ifLet(param:other:)")
+        assertUnused(label: "param", name: "param", in: "whileLet(param:other:)")
+        assertUnused(label: "param", name: "param", in: "guardLet(param:other:)")
+        assertUsed(label: "param", name: "param", in: "ifLetUsedInInitializer(param:)")
+        assertUsed(label: "param", name: "param", in: "ifLetUsedInElse(param:other:)")
+        assertUsed(label: "param", name: "param", in: "guardLetUsedInElse(param:other:)")
+        assertUsed(label: "param", name: "param", in: "guardLetUsedBefore(param:other:)")
+        assertUsed(label: "param", name: "param", in: "ifLetShorthand(param:)")
+        assertUsed(label: "param", name: "param", in: "whileLetShorthand(param:)")
+    }
+
+    func testShadowedByCasePattern() {
+        analyze()
+        assertUnused(label: "param", name: "param", in: "switchCase(param:other:)")
+        assertUnused(label: "param", name: "param", in: "switchCaseWhere(param:other:)")
+        assertUnused(label: "param", name: "param", in: "ifCase(param:other:)")
+        assertUsed(label: "param", name: "param", in: "usedInOtherCase(param:other:)")
+        assertUsed(label: "param", name: "param", in: "usedInPattern(param:other:)")
+        assertUsed(label: "param", name: "param", in: "usedAsSubject(param:)")
+    }
+
+    func testShadowedPropertyWrapperProjection() {
+        analyze()
+        assertUsed(label: "param", name: "param", in: "projectionAfterLet(param:)")
+        assertUsed(label: "param", name: "param", in: "storageAfterLet(param:)")
+        assertUsed(label: "param", name: "param", in: "projectionInIfLet(param:other:)")
+        assertUsed(label: "param", name: "param", in: "projectionInClosure(param:)")
+        assertUsed(label: "param", name: "param", in: "projectionInForIn(param:items:)")
+        assertUnused(label: "param", name: "param", in: "shadowedWithoutProjection(param:other:)")
+    }
+
+    func testShadowedByCatchPattern() {
+        analyze()
+        assertUnused(label: "param", name: "param", in: "catchLet(param:)")
+        assertUnused(label: "error", name: "error", in: "catchImplicitError(error:)")
+        assertUsed(label: "param", name: "param", in: "catchUsedAfter(param:)")
+        assertUnused(label: "param", name: "param", in: "catchCastPattern(param:)")
+    }
+
     func testUsedInNestedFunctionDefaultValue() {
         analyze()
         assertUsed(label: "param", name: "param", in: "myFunc(param:)")

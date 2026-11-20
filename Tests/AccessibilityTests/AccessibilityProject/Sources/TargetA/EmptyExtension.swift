@@ -42,3 +42,11 @@ extension EmptyExtensionIgnored {}
 extension EmptyExtensionAvailability {}
 
 extension EmptyExtensionGeneric where T: Equatable {}
+
+public struct EmptyExtensionTrailingIgnored {}
+public struct EmptyExtensionBraceIgnored {}
+
+extension EmptyExtensionTrailingIgnored {} // outskirts:ignore
+
+extension EmptyExtensionBraceIgnored { // outskirts:ignore
+}

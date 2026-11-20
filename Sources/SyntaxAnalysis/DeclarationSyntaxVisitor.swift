@@ -114,7 +114,7 @@ public final class DeclarationSyntaxVisitor: PeripherySyntaxVisitor {
             parse(
                 modifiers: node.modifiers,
                 attributes: node.attributes,
-                trivia: node.leadingTrivia,
+                trivia: node.commentCommandTrivia,
                 enumCaseParameterClause: element.parameterClause,
                 at: element.name.positionAfterSkippingLeadingTrivia
             )
@@ -644,7 +644,7 @@ public final class DeclarationSyntaxVisitor: PeripherySyntaxVisitor {
 
 // MARK: - Inline Comment Commands
 
-private extension SyntaxProtocol {
+extension SyntaxProtocol {
     /// All trivia where inline comment commands can be found.
     ///
     /// Matches uses like these:

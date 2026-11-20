@@ -1,5 +1,6 @@
 import Configuration
 import Foundation
+import Logger
 @testable import ProjectDrivers
 import Shared
 import SystemPackage
@@ -126,6 +127,25 @@ final class GenericProjectDriverTest: XCTestCase {
             }
         }
     }
+
+    #if os(macOS)
+        func testPlanCarriesTheConfiguredIndexStores_doesNotRegress() throws {
+            let store = directory.appendingPathComponent("store")
+            let source = try writeFile("let value = 1\n", named: "main.swift", in: directory)
+            let swiftc = Process()
+            swiftc.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+            swiftc.arguments = ["swiftc", "-c", source.string, "-o", directory.appendingPathComponent("main.o").path, "-index-store-path", store.path]
+            try swiftc.run()
+            swiftc.waitUntilExit()
+            XCTAssertEqual(swiftc.terminationStatus, 0)
+            let file = try write(#"{"indexstores": ["\#(store.path)"]}"#)
+            let driver = try GenericProjectDriver(genericProjectConfig: file, configuration: Configuration())
+
+            let plan = try driver.plan(logger: Logger(quiet: true, verbose: false, colorMode: .never).contextualized(with: "test"))
+
+            XCTAssertEqual(plan.indexStorePaths, [FilePath(store.path)])
+        }
+    #endif
 
     // MARK: - Private
 

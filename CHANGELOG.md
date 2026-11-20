@@ -1,3 +1,13 @@
+## 3.27.0 (2026-11-20)
+
+##### Bug Fixes
+
+- An unused parameter shadowed by a name bound in a parenthesized closure parameter clause, a `for` pattern, `if`/`while`/`guard let`, `case let`, `catch let` or a bare `catch` (implicit `error`) is reported: the uses of the shadowing name no longer count as uses of the parameter. A property wrapper parameter whose `$x` projection or `_x` storage is used under a shadowing name stays used.
+- A trailing `// outskirts:ignore` comment on an enum case (`case foo // outskirts:ignore`) or an empty extension (`extension Foo {} // outskirts:ignore`) is honored, as on every other declaration.
+- With `enable_unused_system_imports`, a generic project (`--generic-project-config`) indexes its system modules and reports unused system imports.
+- With `--changed-lines`, an added line that starts with `++ ` no longer reads as a file header, which sent the following changes of the file to a bogus file and dropped their results.
+- The `xcode` format keeps the real name of a file without an extension, such as `Makefile`, instead of appending `.swift`.
+
 ## 3.26.0 (2026-11-17)
 
 ##### Breaking

@@ -55,6 +55,13 @@ final class EmptyExtensionTest: SPMSourceGraphTestCase {
         assertNotEmptyExtension("EmptyExtensionIgnored")
     }
 
+    func testTrailingIgnoreCommentCommand() {
+        analyze()
+
+        assertNotEmptyExtension("EmptyExtensionTrailingIgnored")
+        assertNotEmptyExtension("EmptyExtensionBraceIgnored")
+    }
+
     func testResultLocationAndKind() throws {
         analyze()
 
