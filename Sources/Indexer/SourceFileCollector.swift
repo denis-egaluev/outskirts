@@ -17,6 +17,12 @@ public struct SourceFileCollector {
         let mainFiles: [FilePath]
     }
 
+    /// The units `currentUnits` compares: those of a module and platform, and with `every_variant` of an index store.
+    private struct UnitGroup: Hashable {
+        let unit: IndexCoverage.IndexedUnit
+        let store: FilePath?
+    }
+
     private let indexStorePaths: Set<FilePath>
     private let excludedModules: Set<String>
     private let scanInputs: ScanInputs
@@ -132,6 +138,7 @@ public struct SourceFileCollector {
                 sourceModificationDate: sourceModificationDate,
                 module: \.3,
                 platform: { IndexPlatform(triple: $0.2.target) },
+                store: configuration.everyVariant ? { $0.0 } : nil,
                 modificationDate: \.4
             )
             let modules = tuples.compactMapSet { $0.3 }
@@ -177,11 +184,15 @@ public struct SourceFileCollector {
     /// current file; otherwise they are kept, as they are the only index data available for the file on their platform
     /// (units of a platform unknown to `IndexPlatform` share a platform of their own). With `index_built_from` too, as
     /// git cannot tell which of the units was written from the revision: only whether the file is outdated changes.
+    /// With `every_variant`, `store` gives the index store of each unit: every build variant has a store of its own,
+    /// and two variants of a platform (configurations, sets of conditions) compile the file differently, so a unit is
+    /// only dropped for a current unit of its module and platform in its own store.
     static func currentUnits<Unit>(
         _ units: [Unit],
         sourceModificationDate: Date?,
         module: (Unit) -> String,
         platform: (Unit) -> IndexPlatform?,
+        store: ((Unit) -> FilePath)? = nil,
         modificationDate: (Unit) -> Date?
     ) -> [Unit] {
         guard let sourceModificationDate else { return units }
@@ -192,8 +203,8 @@ public struct SourceFileCollector {
             return date >= sourceModificationDate
         }
 
-        func group(_ unit: Unit) -> IndexCoverage.IndexedUnit {
-            IndexCoverage.IndexedUnit(module: module(unit), platform: platform(unit))
+        func group(_ unit: Unit) -> UnitGroup {
+            UnitGroup(unit: IndexCoverage.IndexedUnit(module: module(unit), platform: platform(unit)), store: store?(unit))
         }
 
         let groupsWithCurrentUnit = Set(units.filter(isCurrent).map(group))

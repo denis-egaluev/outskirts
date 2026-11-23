@@ -37,6 +37,9 @@ public enum PeripheryError: Error, LocalizedError, CustomStringConvertible {
     case derivedDataIndexStoreNotFound(derivedDataPath: String, tried: [String])
     case indexBuiltFromNotInGitWorkTree(path: String)
     case indexBuiltFromUnknownRevision(revision: String, repository: String, message: String)
+    case variantBuildFailed(variant: String, scheme: String, underlying: Error)
+    case variantIndexStoreNotFound(variant: String, derivedDataPath: String)
+    case packageVariantBuildFailed(variant: String, underlying: Error)
 
     public var errorDescription: String? {
         switch self {
@@ -122,6 +125,18 @@ public enum PeripheryError: Error, LocalizedError, CustomStringConvertible {
             return "'--index-built-from' needs a git working tree, but '\(path)' is not inside one."
         case let .indexBuiltFromUnknownRevision(revision, repository, message):
             return "'--index-built-from \(revision)' is not a git revision of \(repository): \(message)"
+        case let .variantBuildFailed(variant, scheme, underlying):
+            let advice = "If its platform or SDK is not installed, install it in Xcode " +
+                "(Settings > Components) or leave the platform out with 'variant_platforms'."
+            return variantFailure("Cannot build the variant '\(variant)' of scheme '\(scheme)'", underlying: underlying,
+                                  missingToolchainMarkers: Self.missingSDKMarkers, advice: advice)
+        case let .variantIndexStoreNotFound(variant, derivedDataPath):
+            return "No index store for the variant '\(variant)' in \(derivedDataPath): build it first by scanning without '--skip-build'."
+        case let .packageVariantBuildFailed(variant, underlying):
+            let advice = "If its triple or Swift SDK is not installed, install it " +
+                "(e.g. 'swift sdk install') or leave the triple out with 'variant_triples'."
+            return variantFailure("Cannot build the variant '\(variant)' of the package", underlying: underlying,
+                                  missingToolchainMarkers: Self.missingSwiftSDKMarkers, advice: advice)
         }
     }
 
@@ -144,6 +159,58 @@ public enum PeripheryError: Error, LocalizedError, CustomStringConvertible {
     }
 
     // MARK: - Private
+
+    private static let missingSDKMarkers = [
+        "cannot be located",
+        "is not installed",
+        "no such sdk",
+        "could not find sdk",
+    ]
+
+    private static let missingSwiftSDKMarkers = [
+        "no swift sdk found",
+        "no available swift sdk",
+        "unknown target triple",
+        "unknown triple",
+        "no such sdk",
+        "could not find sdk",
+    ]
+
+    private static let maxRelayedErrors = 5
+    private static let maxRelayedOutputLines = 30
+
+    /// Gives the missing platform advice only when the build output points at a missing toolchain;
+    /// otherwise relays the first compiler errors, which belong to the project.
+    private func variantFailure(_ title: String, underlying: Error, missingToolchainMarkers: [String], advice: String) -> String {
+        let details = describe(underlying)
+        let lowercased = details.lowercased()
+        // A destination outside the supported platforms of the scheme is a project matter, not a missing SDK.
+        let unsupportedPlatform = lowercased.contains("supported platforms")
+        if !unsupportedPlatform, missingToolchainMarkers.contains(where: lowercased.contains) {
+            return "\(title). \(advice)\n\(details)"
+        }
+
+        var errors: [String] = []
+        for line in details.split(whereSeparator: \.isNewline) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.contains("error:"), !trimmed.hasPrefix("|"), !errors.contains(trimmed) else { continue }
+
+            errors.append(trimmed)
+            if errors.count == Self.maxRelayedErrors {
+                break
+            }
+        }
+        let hint = "A failure specific to one configuration (e.g. code under '#if DEBUG' used in Release) comes from the project."
+        var message = "\(title):"
+        if !errors.isEmpty {
+            message += "\n" + errors.map { "  \($0)" }.joined(separator: "\n")
+        }
+        message += "\n\(hint)"
+        if details.split(whereSeparator: \.isNewline).count <= Self.maxRelayedOutputLines {
+            message += "\n\(details)"
+        }
+        return message
+    }
 
     /// Shows the error's own message, never its Swift type name.
     private func describe(_ error: Error) -> String {

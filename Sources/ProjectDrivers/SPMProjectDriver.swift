@@ -1,4 +1,5 @@
 import Configuration
+import Extensions
 import Foundation
 import Indexer
 import IndexStore
@@ -11,6 +12,17 @@ public final class SPMProjectDriver {
     private let pkg: SPM.Package
     private let configuration: Configuration
     private let logger: Logger
+    private var resolvedBuilds: [PackageBuild]?
+
+    /// A build of the package: one per variant with `every_variant`, else the single build of the package.
+    struct PackageBuild: Equatable {
+        let variant: BuildVariant?
+        var arguments: [String]
+        /// The scratch path of a variant build, where it keeps its products and its index store.
+        let scratchPath: FilePath?
+        /// The index store a variant build writes to itself, rather than where SwiftPM places it.
+        var indexStorePath: FilePath?
+    }
 
     public convenience init(configuration: Configuration, shell: Shell, logger: Logger) throws {
         if !configuration.schemes.isEmpty {
@@ -30,23 +42,140 @@ public final class SPMProjectDriver {
 
 extension SPMProjectDriver: ProjectDriver {
     public func build() throws {
-        if !configuration.skipBuild {
-            if configuration.cleanBuild {
-                try pkg.clean(additionalArguments: configuration.buildArguments)
-            }
+        guard !configuration.skipBuild else { return }
 
-            if configuration.outputFormat.supportsAuxiliaryOutput {
-                let asterisk = logger.colorize("*", .boldGreen)
-                logger.info("\(asterisk) Building...")
-            }
-
-            try pkg.build(additionalArguments: configuration.buildArguments)
+        for build in try builds() {
+            try self.build(build)
         }
     }
 
+    /// Builds the package with the build arguments of `build`; the failure of a variant build names the variant, such
+    /// as a triple whose Swift SDK is missing.
+    private func build(_ build: PackageBuild) throws {
+        if configuration.cleanBuild {
+            try pkg.clean(additionalArguments: build.arguments)
+        }
+
+        let interval = build.variant.map { logger.beginInterval("driver:build:variant", detail: $0.description) }
+        defer {
+            if let interval {
+                logger.endInterval(interval)
+            }
+        }
+
+        if configuration.outputFormat.supportsAuxiliaryOutput {
+            let asterisk = logger.colorize("*", .boldGreen)
+            let variant = build.variant.map { " (\($0))" } ?? ""
+            logger.info("\(asterisk) Building\(variant)...")
+        }
+
+        do {
+            try pkg.build(additionalArguments: build.arguments)
+        } catch let error as PeripheryError {
+            guard let variant = build.variant, case .shellCommandFailed = error else { throw error }
+
+            throw PeripheryError.packageVariantBuildFailed(variant: variant.description, underlying: error)
+        }
+    }
+
+    /// The builds of the scan: with `every_variant`, one per variant, each with its own build arguments and its own
+    /// scratch path; otherwise the single build with the configured build arguments.
+    func builds() throws -> [PackageBuild] {
+        if let resolvedBuilds {
+            return resolvedBuilds
+        }
+
+        let builds: [PackageBuild]
+        if configuration.everyVariant {
+            let resolution = try BuildVariantResolver(configuration: configuration).swiftPackageVariants()
+            for warning in resolution.warnings {
+                logger.warn(warning)
+            }
+            builds = resolution.variants.map { Self.variantBuild($0, buildArguments: configuration.buildArguments, packagePath: pkg.path) }
+        } else {
+            builds = [PackageBuild(variant: nil, arguments: configuration.buildArguments, scratchPath: nil)]
+        }
+        resolvedBuilds = builds
+        return builds
+    }
+
+    /// The build of a variant: the configured build arguments without their scratch path, those of the variant, then a
+    /// scratch path of its own, `outskirts-variants/<hash of the other arguments>` in the configured scratch path or
+    /// else in `.build`. Variants never share build products, and a scan reuses the incremental build of each variant.
+    /// SwiftPM indexes only debug builds, so a release variant has the compiler write its index store in its scratch path.
+    static func variantBuild(_ variant: BuildVariant, buildArguments: [String], packagePath: FilePath) -> PackageBuild {
+        let (configuredScratchPath, otherArguments) = splitScratchPath(buildArguments)
+        let arguments = otherArguments + variant.swiftBuildArguments
+        let base = configuredScratchPath.map { packagePath.pushing(FilePath($0)) } ?? packagePath.appending(".build")
+        let scratchPath = base.appending("outskirts-variants").appending(arguments.joined(separator: "\n").stableHashHex).lexicallyNormalized()
+        var build = PackageBuild(variant: variant, arguments: arguments + ["--scratch-path", scratchPath.string], scratchPath: scratchPath)
+
+        if !variant.isDebug {
+            let indexStorePath = scratchPath.appending("index-store")
+            build.arguments += ["-Xswiftc", "-index-store-path", "-Xswiftc", indexStorePath.string]
+            build.indexStorePath = indexStorePath
+        }
+        return build
+    }
+
+    /// The last scratch path of `arguments`, given by `--scratch-path` or its older name `--build-path`, and the other
+    /// arguments; an argument forwarded to the compiler or the linker is never a scratch path.
+    static func splitScratchPath(_ arguments: [String]) -> (scratchPath: String?, others: [String]) {
+        let options: Set = ["--scratch-path", "--build-path"]
+        var scratchPath: String?
+        var others: [String] = []
+        var index = arguments.startIndex
+
+        while index < arguments.endIndex {
+            let argument = arguments[index]
+            index += 1
+
+            if BuildVariantResolver.forwardingOptions.contains(argument), index < arguments.endIndex {
+                others += [argument, arguments[index]]
+                index += 1
+            } else if let separator = argument.firstIndex(of: "="), options.contains(String(argument[..<separator])) {
+                scratchPath = String(argument[argument.index(after: separator)...])
+            } else if options.contains(argument), index < arguments.endIndex {
+                scratchPath = arguments[index]
+                index += 1
+            } else {
+                others.append(argument)
+            }
+        }
+        return (scratchPath, others)
+    }
+
+    /// The index store of each variant build; a variant left unbuilt, e.g. by `skip_build`, fails naming it.
+    func variantIndexStorePaths(_ builds: [PackageBuild]) throws -> Set<FilePath> {
+        try builds.mapSet { build in
+            let notFound = PeripheryError.variantIndexStoreNotFound(variant: build.variant?.description ?? "", derivedDataPath: build.scratchPath?.string ?? "")
+            if let indexStorePath = build.indexStorePath {
+                guard indexStorePath.appending("v5").exists else { throw notFound }
+
+                return indexStorePath
+            }
+
+            do {
+                return try pkg.indexStorePath(additionalArguments: build.arguments)
+            } catch PeripheryError.spmIndexStoreNotFound {
+                throw notFound
+            }
+        }
+    }
+
+    /// Whether the plan reads the index stores of the variant builds rather than those of `index_store_path` or of the
+    /// single build.
+    private var readsVariantIndexStores: Bool {
+        configuration.everyVariant && configuration.indexStorePath.isEmpty
+    }
+
     public func plan(logger: ContextualLogger) throws -> IndexPlan {
-        let indexStorePaths = try resolveIndexStorePaths(configured: configuration.indexStorePath) {
-            try pkg.indexStorePath(additionalArguments: configuration.buildArguments)
+        let indexStorePaths = if readsVariantIndexStores {
+            try variantIndexStorePaths(builds())
+        } else {
+            try resolveIndexStorePaths(configured: configuration.indexStorePath) {
+                try pkg.indexStorePath(additionalArguments: configuration.buildArguments)
+            }
         }
 
         // Load package description once and reuse it
@@ -79,7 +208,7 @@ extension SPMProjectDriver: ProjectDriver {
             xcStringsPaths: xcStringsPaths,
             xcStringsModules: projectFileModules(of: .xcStrings, from: description),
             expectedSourceFiles: expectedSourceFiles,
-            coverageTargets: configuration.strictIndexCoverage ? coverageTargets(of: description.targets.filter { expectedSourceFiles.keys.contains($0.name) }) : [:],
+            coverageTargets: configuration.strictIndexCoverage ? try coverageTargets(of: description.targets.filter { expectedSourceFiles.keys.contains($0.name) }) : [:],
             unreadableUnits: unreadableUnits,
             indexStorePaths: indexStorePaths
         )
@@ -90,10 +219,27 @@ extension SPMProjectDriver: ProjectDriver {
     /// Every target is expected on the platform the package is built for: the platform of a `--triple` build argument,
     /// else the host; any platform with `--swift-sdk` or a triple of an unknown system, whose platform is not known
     /// here, and with an index store given by `--index-store-path` without `--triple`, which may come from any build.
-    func coverageTargets(of targets: [Target]) -> [String: CoverageTarget] {
-        let platforms = Self.buildPlatforms(arguments: configuration.buildArguments, externalIndexStore: !configuration.indexStorePath.isEmpty)
+    /// With `every_variant`, the platforms of all the variants.
+    func coverageTargets(of targets: [Target]) throws -> [String: CoverageTarget] {
+        let platforms = if readsVariantIndexStores {
+            try Self.variantPlatforms(builds())
+        } else {
+            Self.buildPlatforms(arguments: configuration.buildArguments, externalIndexStore: !configuration.indexStorePath.isEmpty)
+        }
 
         return Dictionary(uniqueKeysWithValues: targets.map { ($0.name, CoverageTarget(moduleName: $0.moduleName, platforms: platforms)) })
+    }
+
+    /// The platforms the variant builds compile for; any platform as soon as one of them is not known here.
+    static func variantPlatforms(_ builds: [PackageBuild]) -> Set<IndexPlatform> {
+        var platforms: Set<IndexPlatform> = []
+        for build in builds {
+            let buildPlatforms = buildPlatforms(arguments: build.arguments, externalIndexStore: false)
+            guard !buildPlatforms.isEmpty else { return [] }
+
+            platforms.formUnion(buildPlatforms)
+        }
+        return platforms
     }
 
     static func buildPlatforms(arguments: [String], externalIndexStore: Bool) -> Set<IndexPlatform> {

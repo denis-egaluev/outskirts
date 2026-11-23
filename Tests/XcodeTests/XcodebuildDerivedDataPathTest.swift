@@ -15,7 +15,7 @@
 
             func exec(_ args: [String]) throws -> String {
                 commands.append(args)
-                return "Xcode 0.0"
+                return args.contains("-showBuildSettings") ? "[]" : "Xcode 0.0"
             }
         }
 
@@ -143,6 +143,58 @@
             let second = try buildDerivedDataPath(configuration: reporting)
 
             XCTAssertEqual(first, second)
+        }
+
+        func testDriverWithoutEveryVariantKeepsTheDerivedDataPathOfASingleBuild() throws {
+            var configuration = Configuration()
+            configuration.buildArguments = ["-destination", "generic/platform=iOS Simulator"]
+
+            let path = try buildDerivedDataPath(configuration: configuration)
+
+            let (xcodebuild, _) = makeXcodebuild()
+            let version = try xcodebuild.version().stableHashHex
+            let projectHash = ProjectStub().path.lexicallyNormalized().string.stableHashHex
+            let argumentsHash = configuration.buildArguments.joined(separator: "\n").stableHashHex
+            let expected = "DerivedData-\(version)-\(projectHash)-\("SchemeA".stableHashHex)-\(argumentsHash)"
+            XCTAssertEqual(path, TestCacheDirectory.path.appending(expected).string)
+        }
+
+        func testDriverBuildsEachVariantInADerivedDataPathOfItsOwn() throws {
+            var single = Configuration()
+            single.buildArguments = ["SWIFT_TREAT_WARNINGS_AS_ERRORS=NO"]
+            var variants = Configuration()
+            variants.buildArguments = single.buildArguments
+            variants.everyVariant = true
+            variants.variantPlatforms = ["macOS", "iOS", "iOS Simulator"]
+            variants.variantConfigurations = ["Debug", "Release"]
+            variants.variantConditions = ["FEATURE_X"]
+
+            let singlePaths = try buildDerivedDataPaths(configuration: single)
+            let variantPaths = try buildDerivedDataPaths(configuration: variants)
+
+            XCTAssertEqual(singlePaths.count, 1)
+            XCTAssertEqual(variantPaths.count, 7)
+            XCTAssertEqual(Set(variantPaths).count, 7)
+            XCTAssertFalse(variantPaths.contains(singlePaths[0]))
+            XCTAssertEqual(try buildDerivedDataPaths(configuration: variants), variantPaths, "the same variants reuse their DerivedData")
+        }
+
+        private func buildDerivedDataPaths(configuration: Configuration) throws -> [String] {
+            let (xcodebuild, shell) = makeXcodebuild()
+            let driver = XcodeProjectDriver(
+                logger: logger,
+                configuration: configuration,
+                xcodebuild: xcodebuild,
+                project: ProjectStub(),
+                schemes: ["SchemeA"]
+            )
+
+            try driver.build()
+
+            return try shell.commands.filter { $0.contains("build-for-testing") }.map { command in
+                let index = try XCTUnwrap(command.firstIndex(of: "-derivedDataPath"))
+                return command[index + 1]
+            }
         }
 
         private func buildDerivedDataPath(configuration: Configuration) throws -> String {

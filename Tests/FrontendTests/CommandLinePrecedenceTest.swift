@@ -41,6 +41,7 @@ final class CommandLinePrecedenceTest: XCTestCase {
         ("skip_build", \.skipBuild),
         ("strict_index", \.strictIndex),
         ("strict_index_coverage", \.strictIndexCoverage),
+        ("every_variant", \.everyVariant),
         ("skip_schemes_validation", \.skipSchemesValidation),
         ("relative_results", \.relativeResults),
         ("strict", \.strict),
@@ -205,6 +206,47 @@ final class CommandLinePrecedenceTest: XCTestCase {
         XCTAssertEqual(configuration.schemes, ["Tools"])
         XCTAssertEqual(configuration.excludeTargets, ["Demo"])
         XCTAssertEqual(configuration.reportExclude, [.pattern("**/Mocks/**")])
+    }
+
+    func testVariantListsOnTheCommandLineReplaceTheOnesOfTheFile() throws {
+        let configuration = try merge(
+            ["--variant-platforms", "macOS", "iOS", "--variant-configurations", "all", "--variant-conditions", "BETA", "--variant-triples", "x86_64-unknown-linux-gnu"],
+            file: """
+            every_variant: true
+            variant_platforms: [tvOS]
+            variant_configurations: [Release]
+            variant_conditions: [DEMO]
+            variant_triples: [arm64-apple-macosx]
+            """
+        )
+
+        XCTAssertTrue(configuration.everyVariant)
+        XCTAssertEqual(configuration.variantPlatforms, ["macOS", "iOS"])
+        XCTAssertEqual(configuration.variantConfigurations, ["all"])
+        XCTAssertEqual(configuration.variantConditions, ["BETA"])
+        XCTAssertEqual(configuration.variantTriples, ["x86_64-unknown-linux-gnu"])
+    }
+
+    func testVariantSettingsFromTheFile_areKeptWhenTheOptionsAreNotPassed() throws {
+        let configuration = try merge([], file: "variant_platforms: [tvOS]\nvariant_configurations: [Release]\n")
+
+        XCTAssertFalse(configuration.everyVariant)
+        XCTAssertEqual(configuration.variantPlatforms, ["tvOS"])
+        XCTAssertEqual(configuration.variantConfigurations, ["Release"])
+        XCTAssertEqual(configuration.variantConditions, [])
+    }
+
+    func testVariantDefaults_leaveTheConfigurationUnchanged() throws {
+        let configuration = try merge([], file: nil)
+
+        XCTAssertFalse(configuration.everyVariant)
+        XCTAssertEqual(configuration.variantPlatforms, [])
+        XCTAssertEqual(configuration.variantConfigurations, [])
+        XCTAssertEqual(configuration.variantConditions, [])
+        XCTAssertEqual(configuration.variantTriples, [])
+        let yaml = try configuration.asYaml()
+        XCTAssertFalse(yaml.contains("variant"), yaml)
+        XCTAssertEqual(yaml, try Configuration().asYaml())
     }
 
     func testRetainPublicModulesOnTheCommandLineReplaceTheOnesOfTheFile() throws {

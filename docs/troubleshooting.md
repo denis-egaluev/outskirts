@@ -95,11 +95,23 @@ There are a few ways around this:
 
 Platform conditions (`#if os(...)`, `canImport(...)` and the like) are handled differently, see [Platform conditionals](framework-conventions.md#platform-conditionals).
 
+## Every variant (4.0 preview)
+
+[`--every-variant`](options.md#--every-variant) (`every_variant: true`) builds and indexes every build variant of the project, then scans them together: a declaration used by any variant is used. It replaces the manual union described in [Scanning several platforms or configurations](#scanning-several-platforms-or-configurations). It is a preview: its results and options may change before 4.0.
+
+- **Platforms**: by default, the platforms the targets support, read from their SDK settings. [`--variant-platforms`](options.md#--variant-platforms) narrows the list. Each scheme is built only for the platforms of the targets its `.xcscheme` file names, so a project with one scheme per platform builds each scheme for its own platform; a scheme whose targets support none of the listed platforms is skipped with a warning.
+- **Configurations**: Debug by default. [`--variant-configurations`](options.md#--variant-configurations) lists others, or `all` for every configuration of the project.
+- **Conditions**: [`--variant-conditions`](options.md#--variant-conditions) adds one variant per set of compilation conditions, for code under custom `#if` flags. [`--variant-triples`](options.md#--variant-triples) lists the target triples of a Swift package.
+
+Each variant gets its own DerivedData or scratch path, so the build time and disk use grow with the number of variants. The scan fails when the SDK of a requested platform is not installed. Outside Debug, outskirts builds with `ENABLE_TESTABILITY=YES` (Xcode) or `-enable-testing` (Swift packages) so that the index sees every reference.
+
+Code under an `#if` that no variant compiles is still reported: add the variant that compiles it. With [`--index-store-path`](options.md#--index-store-path) or [`--derived-data-path`](options.md#--derived-data-path), `every_variant` is ignored and the given stores are scanned as they are. [`fix`](fix.md) does not accept `every_variant` scans yet.
+
 ## Scanning several platforms or configurations
 
 Since 3.21.0.
 
-outskirts reads every index store it is given and merges their data per source file. A declaration referenced in any of them is used, so scanning the stores of all your build configurations, or of all your platforms, together reports only the code that none of them uses. This union also covers code compiled in a single configuration (`releaseName` above is used in the Release store, `debugName` in the Debug one) and the imports needed by only one platform.
+To have outskirts build every variant for you, see [Every variant (4.0 preview)](#every-variant-40-preview). Otherwise, outskirts reads every index store it is given and merges their data per source file. A declaration referenced in any of them is used, so scanning the stores of all your build configurations, or of all your platforms, together reports only the code that none of them uses. This union also covers code compiled in a single configuration (`releaseName` above is used in the Release store, `debugName` in the Debug one) and the imports needed by only one platform.
 
 By default, code under `#if os(...)` is checked like any other code ([`--disable-platform-conditional-retention`](options.md#--disable-platform-conditional-retention) defaults to `true`), so building every platform is what keeps code used only on another platform from being reported. When you scan a single platform instead, `--no-disable-platform-conditional-retention` keeps the declarations referenced from the branches that were not compiled.
 

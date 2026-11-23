@@ -20,6 +20,10 @@ final class UnusedParameterRetainer: SourceGraphMutator {
 
         retainParams(inFunctions: functionDecls)
 
+        if graph.keepsVariantTwins {
+            retainParamsUsedInVariantTwins(of: functionDecls)
+        }
+
         for protoDecl in graph.declarations(ofKind: .protocol) {
             let protoFuncDecls = protoDecl.declarations.filter { functionDecls.contains($0) }
 
@@ -89,6 +93,17 @@ final class UnusedParameterRetainer: SourceGraphMutator {
             } else {
                 retainAllUnusedParams(inMethods: allFunctionDecls)
             }
+        }
+    }
+
+    /// With `every_variant`, the variant twins of a function share its signature: a parameter is only unused when it
+    /// is unused in every twin.
+    private func retainParamsUsedInVariantTwins(of functionDecls: Set<Declaration>) {
+        for functionDecl in functionDecls {
+            let twins = graph.withVariantTwins(functionDecl)
+            guard twins.count > 1 else { continue }
+
+            retain(params: twins.flatMap(\.unusedParameters), usedIn: twins)
         }
     }
 

@@ -94,6 +94,44 @@ final class CacheManagerTest: XCTestCase {
         XCTAssertTrue(fm.fileExists(atPath: unrelated.path))
     }
 
+    func testEvict_keepsEveryFolderOfTheKeptSet() throws {
+        let iOS = try makeDerivedData("DerivedData-ios", ageDays: 60)
+        let macOS = try makeDerivedData("DerivedData-macos", ageDays: 60)
+        let stale = try makeDerivedData("DerivedData-stale", ageDays: 60)
+
+        let evicted = try CacheManager.evictStale(cacheDirectory: cache, maxAgeDays: 14, keeping: [iOS, macOS])
+
+        XCTAssertEqual(evicted.map(\.name), ["DerivedData-stale"])
+        XCTAssertTrue(fm.fileExists(atPath: iOS.path))
+        XCTAssertTrue(fm.fileExists(atPath: macOS.path))
+        XCTAssertFalse(fm.fileExists(atPath: stale.path))
+    }
+
+    func testEvict_sizeCapNeverEvictsAKeptFolderAndCountsThemAll() throws {
+        let first = try makeBigDerivedData("DerivedData-first", ageDays: 10, kilobytes: 400)
+        let second = try makeBigDerivedData("DerivedData-second", ageDays: 9, kilobytes: 400)
+        let other = try makeBigDerivedData("DerivedData-other", ageDays: 1, kilobytes: 400)
+
+        let evicted = try CacheManager.evictStale(cacheDirectory: cache, maxAgeDays: 14, maxSizeBytes: 1000 << 10, keeping: [first, second])
+
+        XCTAssertEqual(evicted.map(\.name), ["DerivedData-other"])
+        XCTAssertTrue(fm.fileExists(atPath: first.path))
+        XCTAssertTrue(fm.fileExists(atPath: second.path))
+        XCTAssertFalse(fm.fileExists(atPath: other.path))
+    }
+
+    func testEvict_singleFolderSignatureKeepsTheSameFolderAsItsSet() throws {
+        let current = try makeDerivedData("DerivedData-current", ageDays: 60)
+        let stale = try makeDerivedData("DerivedData-stale", ageDays: 60)
+
+        let evicted = try CacheManager.evictStale(cacheDirectory: cache, maxAgeDays: 14, maxSizeGB: 0, keeping: current)
+
+        XCTAssertEqual(evicted.map(\.name), ["DerivedData-stale"])
+        XCTAssertTrue(fm.fileExists(atPath: current.path))
+        XCTAssertFalse(fm.fileExists(atPath: stale.path))
+        XCTAssertEqual(try CacheManager.evictStale(cacheDirectory: cache, maxAgeDays: 14, keeping: nil).map(\.name), ["DerivedData-current"])
+    }
+
     func testEviction_renamesTheFolderOutOfReachBeforeRemovingIt() throws {
         let stale = try makeDerivedData("DerivedData-stale", ageDays: 30)
         let fileManager = RemovalObservingFileManager()
@@ -117,6 +155,31 @@ final class CacheManagerTest: XCTestCase {
         let leftover = try makeDerivedData(".evicting-\(UUID().uuidString)", ageDays: 0)
 
         XCTAssertNoThrow(try CacheManager.evictStale(cacheDirectory: cache, maxAgeDays: 14, keeping: nil))
+
+        XCTAssertFalse(fm.fileExists(atPath: leftover.path))
+    }
+
+    func testClearCache_symlinkedDirectory_doesNotFail() throws {
+        let target = root.appendingPathComponent("target")
+        try write("a", in: target.appendingPathComponent("DerivedData-a"))
+        let sibling = root.appendingPathComponent("sibling")
+        try write("s", in: sibling)
+        let link = root.appendingPathComponent("link")
+        try fm.createSymbolicLink(at: link, withDestinationURL: target)
+
+        XCTAssertNoThrow(try CacheManager.clear(cacheDirectory: link))
+
+        XCTAssertEqual(try fm.destinationOfSymbolicLink(atPath: link.path), target.path)
+        XCTAssertEqual(try fm.contentsOfDirectory(atPath: target.path), [])
+        XCTAssertEqual(try marker(in: sibling), "s")
+    }
+
+    func testEviction_concurrentEvictingResidue_noWarning() throws {
+        let leftover = try makeDerivedData(".evicting-\(UUID().uuidString)", ageDays: 0)
+        let fileManager = ConcurrentRemovalFileManager()
+        fileManager.leftover = leftover
+
+        XCTAssertNoThrow(try CacheManager.evictStale(cacheDirectory: cache, maxAgeDays: 14, keeping: nil, fileManager: fileManager))
 
         XCTAssertFalse(fm.fileExists(atPath: leftover.path))
     }
@@ -308,5 +371,17 @@ private final class RemovalObservingFileManager: FileManager, @unchecked Sendabl
     override func removeItem(at url: URL) throws {
         onRemove(url)
         try super.removeItem(at: url)
+    }
+}
+
+/// Simulates another eviction that removes the leftover first, the removal then failing with an error other than "no such file".
+private final class ConcurrentRemovalFileManager: FileManager, @unchecked Sendable {
+    var leftover: URL?
+
+    override func removeItem(at url: URL) throws {
+        guard url.lastPathComponent == leftover?.lastPathComponent else { return try super.removeItem(at: url) }
+
+        try super.removeItem(at: url)
+        throw CocoaError(.fileWriteUnknown, userInfo: [NSUnderlyingErrorKey: POSIXError(.ENOENT)])
     }
 }

@@ -16,6 +16,11 @@ public final class XcodeProject: XcodeProjectlike {
 
     private let xcodebuild: Xcodebuild
 
+    /// The names of the build configurations of the project, in the order of the project file.
+    public var buildConfigurationNames: [String] {
+        xcodeProject.pbxproj.rootObject?.buildConfigurationList?.buildConfigurations.map(\.name) ?? []
+    }
+
     convenience init?(
         path: FilePath,
         loadedProjectPaths: inout Set<FilePath>,

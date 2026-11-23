@@ -71,6 +71,55 @@ public final class Xcodebuild {
         return try shell.exec(xcodebuild)
     }
 
+    /// The SDK names each target the scheme builds supports, by target name, as xcodebuild resolves them with the
+    /// build arguments, `.xcconfig` files included: `SUPPORTED_PLATFORMS`, else the SDK of `SDKROOT`.
+    public func supportedSDKs(project: XcodeProjectlike, scheme: String, additionalArguments: [String] = []) throws -> [String: Set<String>] {
+        try Self.validateUserArguments(additionalArguments, setting: "build_arguments")
+
+        let output = try shell.exec([
+            "xcodebuild",
+            "-\(project.type)", project.path.lexicallyNormalized().string,
+            "-scheme", scheme,
+            "-showBuildSettings",
+            "-json",
+        ] + additionalArguments)
+        return try Self.supportedSDKs(showBuildSettingsOutput: output)
+    }
+
+    static func supportedSDKs(showBuildSettingsOutput output: String) throws -> [String: Set<String>] {
+        struct Entry: Decodable {
+            let target: String
+            let buildSettings: [String: String]
+        }
+
+        // xcodebuild may print notes before the JSON array.
+        guard let start = output.firstIndex(of: "["), let data = output[start...].data(using: .utf8) else {
+            throw PeripheryError.usageError("Cannot read the build settings printed by 'xcodebuild -showBuildSettings'.")
+        }
+
+        let entries: [Entry]
+        do {
+            entries = try JSONDecoder().decode([Entry].self, from: data)
+        } catch {
+            throw PeripheryError.usageError("Cannot read the build settings printed by 'xcodebuild -showBuildSettings': \(error.localizedDescription)")
+        }
+        return entries.reduce(into: [:]) { result, entry in
+            result[entry.target, default: []].formUnion(sdks(of: entry.buildSettings))
+        }
+    }
+
+    private static func sdks(of settings: [String: String]) -> Set<String> {
+        let supported = settings["SUPPORTED_PLATFORMS"].map { $0.split(whereSeparator: \.isWhitespace).map(String.init) } ?? []
+        if !supported.isEmpty {
+            return Set(supported)
+        }
+        guard let root = settings["SDKROOT"], !root.isEmpty else { return [] }
+
+        // A resolved SDKROOT is the path of the SDK, e.g. `.../iPhoneOS18.0.sdk`.
+        let name = FilePath(root).lastComponent?.stem ?? root
+        return [String(name.lowercased().prefix { !$0.isNumber && $0 != "." })]
+    }
+
     /// removes the DerivedData folder used to build the specified schemes
     public func removeDerivedData(for project: XcodeProjectlike, allSchemes: [String], buildArguments: [String] = []) throws {
         let path = try derivedDataPath(for: project, schemes: allSchemes, buildArguments: buildArguments)

@@ -39,7 +39,7 @@ private final class Glob {
     private let onUnreadableDirectory: (FilePath, any Error) -> Void
     private var isDirectoryCache: [String: Bool] = [:]
 
-    fileprivate var paths: Set<String> = []
+    var paths: Set<String> = []
 
     init(
         pattern: String,

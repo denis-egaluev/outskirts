@@ -6,18 +6,28 @@ public extension Xcodebuild {
     /// Returns the evicted entries. Eviction is a clean-up: entries that cannot be removed are reported as a warning and
     /// never fail the scan.
     func refreshCache(project: XcodeProjectlike, schemes: [String], buildArguments: [String] = [], maxAgeDays: Int, maxSizeGB: Int = 0) throws -> [EvictedCacheEntry] {
-        let current = try derivedDataPath(for: project, schemes: schemes, buildArguments: buildArguments)
-        let currentURL = URL(fileURLWithPath: current.string)
-        if FileManager.default.fileExists(atPath: currentURL.path) {
-            try CacheManager.recordProject(project.path.lexicallyNormalized().string, in: currentURL)
-            try CacheManager.touch(currentURL)
+        try refreshCache(project: project, schemes: schemes, buildArgumentSets: [buildArguments], maxAgeDays: maxAgeDays, maxSizeGB: maxSizeGB)
+    }
+
+    /// Same as the single build variant, for the DerivedData folders of every build of the scan, one per set of build
+    /// arguments: none of them is evicted.
+    func refreshCache(project: XcodeProjectlike, schemes: [String], buildArgumentSets: [[String]], maxAgeDays: Int, maxSizeGB: Int = 0) throws -> [EvictedCacheEntry] {
+        var currentURLs: Set<URL> = []
+        for buildArguments in buildArgumentSets {
+            let current = try derivedDataPath(for: project, schemes: schemes, buildArguments: buildArguments)
+            let currentURL = URL(fileURLWithPath: current.string)
+            if FileManager.default.fileExists(atPath: currentURL.path) {
+                try CacheManager.recordProject(project.path.lexicallyNormalized().string, in: currentURL)
+                try CacheManager.touch(currentURL)
+            }
+            currentURLs.insert(currentURL)
         }
         do {
             return try CacheManager.evictStale(
                 cacheDirectory: URL(fileURLWithPath: resolvedCacheDirectory().string),
                 maxAgeDays: maxAgeDays,
                 maxSizeGB: maxSizeGB,
-                keeping: currentURL
+                keeping: currentURLs
             )
         } catch {
             logger.warn("Cannot evict stale build caches: \(error.localizedDescription)")

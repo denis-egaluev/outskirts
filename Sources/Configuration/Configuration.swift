@@ -186,6 +186,21 @@ public final class Configuration {
 
     @Setting(key: "strict_index_coverage", defaultValue: false)
     public var strictIndexCoverage: Bool
+
+    @Setting(key: "every_variant", defaultValue: false)
+    public var everyVariant: Bool
+
+    @Setting(key: "variant_platforms", defaultValue: [])
+    public var variantPlatforms: [String]
+
+    @Setting(key: "variant_configurations", defaultValue: [])
+    public var variantConfigurations: [String]
+
+    @Setting(key: "variant_conditions", defaultValue: [])
+    public var variantConditions: [String]
+
+    @Setting(key: "variant_triples", defaultValue: [])
+    public var variantTriples: [String]
     @Setting(key: "index_built_from", defaultValue: nil, convert: SettingConverter.optionalString)
     public var indexBuiltFrom: String?
 
@@ -536,7 +551,7 @@ public final class Configuration {
         $disablePlatformConditionalRetention, $disableUnusedImportAnalysis, $enableUnusedSystemImports, $disableUnusedLocalizedStringAnalysis, $localizedStringCatalogExclude, $localizedStringKeyPatterns, $localizedStringKeyLiteralMatch, $retainRuntimeLocalizedKeys, $superfluousIgnoreComments, $retainUnusedImportedModules,
         $externalEncodableProtocols, $externalCodableProtocols, $externalTestCaseClasses, $verbose, $quiet, $color,
         $disableUpdateCheck, $strict, $indexStorePath, $derivedDataPath,
-        $skipBuild, $skipSchemesValidation, $cleanBuild, $strictIndex, $strictIndexCoverage, $indexBuiltFrom, $cacheMaxAgeDays, $cacheMaxSizeGB, $buildArguments, $xcodeListArguments, $relativeResults, $relativeResultsBase, $changedSince, $changedLines,
+        $skipBuild, $skipSchemesValidation, $cleanBuild, $strictIndex, $strictIndexCoverage, $everyVariant, $variantPlatforms, $variantConfigurations, $variantConditions, $variantTriples, $indexBuiltFrom, $cacheMaxAgeDays, $cacheMaxSizeGB, $buildArguments, $xcodeListArguments, $relativeResults, $relativeResultsBase, $changedSince, $changedLines,
         $jsonPackageManifestPath, $retainCodableProperties, $retainEncodableProperties, $retainEquatableProperties,
         $retainHashableProperties, $baseline, $writeBaseline, $pruneBaseline, $strictBaseline,
         $writeResults, $skipStdoutResults, $genericProjectConfig,

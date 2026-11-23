@@ -21,13 +21,13 @@ public enum SetupSelection {
 
 open class SetupGuideHelpers {
     public let logger: Logger
-    public var readInput: () -> String? = { readLine(strippingNewline: true) }
+    public final var readInput: () -> String? = { readLine(strippingNewline: true) }
 
     public init(logger: Logger) {
         self.logger = logger
     }
 
-    func display(options: [String]) {
+    final func display(options: [String]) {
         let maxPaddingCount = String(options.count).count
 
         for (index, option) in options.enumerated() {
@@ -38,13 +38,13 @@ open class SetupGuideHelpers {
     }
 
     /// No answer selects from no options: throws instead of prompting forever.
-    func ensureNotEmpty(_ options: [String]) throws {
+    final func ensureNotEmpty(_ options: [String]) throws {
         guard options.isEmpty else { return }
 
         throw PeripheryError.guidedSetupError(message: "There are no options to select from")
     }
 
-    func readAnswer() throws -> String {
+    final func readAnswer() throws -> String {
         guard let line = readInput() else {
             print("")
             throw PeripheryError.guidedSetupError(message: "Reached the end of the input before the guided setup was complete")
@@ -53,7 +53,7 @@ open class SetupGuideHelpers {
         return line.trimmed
     }
 
-    public func select(single options: [String]) throws -> String {
+    public final func select(single options: [String]) throws -> String {
         try ensureNotEmpty(options)
 
         while true {
@@ -75,7 +75,7 @@ open class SetupGuideHelpers {
         }
     }
 
-    public func select(multiple options: [String]) throws -> SetupSelection {
+    public final func select(multiple options: [String]) throws -> SetupSelection {
         try ensureNotEmpty(options)
         let helpMsg = " Delimit choices with a single space, e.g: 1 2 3"
 
@@ -112,7 +112,7 @@ open class SetupGuideHelpers {
         }
     }
 
-    public func selectBoolean(default defaultAnswer: Bool? = nil) throws -> Bool {
+    public final func selectBoolean(default defaultAnswer: Bool? = nil) throws -> Bool {
         while true {
             print(
                 "(" + logger.colorize("Y", .boldGreen) + ")es" +

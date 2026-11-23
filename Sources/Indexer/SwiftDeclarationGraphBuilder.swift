@@ -11,6 +11,9 @@ struct SwiftDeclarationGraphBuilder {
     private let configuration: Configuration
     private let retainAllDeclarations: Bool
     private var childDeclsByParentUsr: [String: Set<Declaration>] = [:]
+    /// With `every_variant`, the children that `childDeclsByParentUsr` cannot hold because a variant twin of theirs,
+    /// equal by USR, is already there: they get the same parent.
+    private var variantTwinChildDeclsByParentUsr: [String: [Declaration]] = [:]
     private var referencesByUsr: [String: Set<Reference>] = [:]
     private var danglingReferences: [Reference] = []
     private var varParameterUsrs: Set<String> = []
@@ -32,6 +35,7 @@ struct SwiftDeclarationGraphBuilder {
         extensionUsrMap = records.extensionUsrMap
 
         var newDeclarations: Set<Declaration> = []
+        var variantTwins: [Declaration] = []
 
         for (key, values) in records.rawDeclsByKey {
             let usrs = values.mapSet { $0.0.usr }
@@ -51,13 +55,17 @@ struct SwiftDeclarationGraphBuilder {
             let relations = values.flatMap(\.1)
             references.formUnion(parseDeclaration(decl, relations))
 
-            newDeclarations.insert(decl)
+            let (inserted, member) = newDeclarations.insert(decl)
+            if !inserted, configuration.everyVariant, member.location != decl.location {
+                variantTwins.append(decl)
+            }
             declarations.append(decl)
         }
 
         graph.withLock { graph in
             graph.add(references)
             graph.add(newDeclarations)
+            variantTwins.forEach { graph.add($0) }
 
             if retainAllDeclarations {
                 graph.markRetained(newDeclarations, reason: RetentionReason(retainer: "Indexer", detail: "retain_files"))
@@ -91,7 +99,10 @@ struct SwiftDeclarationGraphBuilder {
                     if rel.symbol.kind == .extension {
                         parentUsr = extensionUsrMap[parentUsr] ?? parentUsr
                     }
-                    childDeclsByParentUsr[parentUsr, default: []].insert(decl)
+                    let inserted = childDeclsByParentUsr[parentUsr, default: []].insert(decl).inserted
+                    if !inserted, configuration.everyVariant {
+                        variantTwinChildDeclsByParentUsr[parentUsr, default: []].append(decl)
+                    }
                 }
             }
 
@@ -151,6 +162,10 @@ struct SwiftDeclarationGraphBuilder {
                 }
 
                 parentDecl.declarations.formUnion(decls)
+
+                for twin in variantTwinChildDeclsByParentUsr[parent, default: []] {
+                    twin.parent = parentDecl
+                }
             }
         }
     }

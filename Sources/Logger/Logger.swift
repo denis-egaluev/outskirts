@@ -131,6 +131,17 @@ public struct Logger: Sendable {
         #endif
     }
 
+    /// An interval whose `detail`, such as the build variant, tells apart the intervals of the same name.
+    public func beginInterval(_ name: StaticString, detail: String) -> SignpostInterval {
+        #if canImport(os)
+            let id = signposter.makeSignpostID()
+            let state = signposter.beginInterval(name, id: id, "\(detail, privacy: .public)")
+            return .init(name: name, state: state)
+        #else
+            return SignpostInterval()
+        #endif
+    }
+
     public func endInterval(_ interval: SignpostInterval) {
         #if canImport(os)
             signposter.endInterval(interval.name, interval.state)

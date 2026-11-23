@@ -9,3 +9,5 @@ report_exclude:
   - Tests/AccessibilityTests/AccessibilityProject/**
   - Tests/Fixtures/**
   - Tests/ExecutableFixtures/**
+enable_redundant_access_level_analysis: true
+enable_open_final_analysis: true

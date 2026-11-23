@@ -44,6 +44,21 @@ struct BuildOptions: ParsableArguments {
 
     @Flag(inversion: .prefixedNo, help: "Fail the scan when the index data misses a scanned target on one of the platforms it supports, or some of its source files")
     var strictIndexCoverage: Bool?
+    @Flag(inversion: .prefixedNo, help: "(4.0 preview) Build and index every build variant instead of one")
+    var everyVariant: Bool?
+
+    @Option(parsing: .upToNextOption, help: "(4.0 preview) Platforms built by --every-variant (default: the platforms the targets support)")
+    var variantPlatforms: [String] = defaultConfiguration.$variantPlatforms.defaultValue
+
+    @Option(parsing: .upToNextOption, help: "(4.0 preview) Build configurations built by --every-variant, or 'all' (default: Debug)")
+    var variantConfigurations: [String] = defaultConfiguration.$variantConfigurations.defaultValue
+
+    @Option(parsing: .upToNextOption, help: "(4.0 preview) Sets of compilation conditions built by --every-variant, one variant per set")
+    var variantConditions: [String] = defaultConfiguration.$variantConditions.defaultValue
+
+    @Option(parsing: .upToNextOption, help: "(4.0 preview) Target triples built by --every-variant for Swift packages")
+    var variantTriples: [String] = defaultConfiguration.$variantTriples.defaultValue
+
     @Option(help: "Git revision the index store was built from: source files changed since it (per git) are reported as out of date, whatever their modification date")
     var indexBuiltFrom: String?
 

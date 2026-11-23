@@ -26,6 +26,17 @@ public final class XcodeTarget {
         target.name
     }
 
+    /// The identifier of the target in its project file, which the build entries of a scheme refer to.
+    var identifier: String {
+        target.uuid
+    }
+
+    /// The targets of the same project this target explicitly depends on.
+    var projectDependencies: Set<XcodeTarget> {
+        let identifiers = Set(target.dependencies.compactMap { $0.target?.uuid })
+        return project.targets.filter { $0.project == project && identifiers.contains($0.identifier) }
+    }
+
     public func identifyFiles() throws {
         let groupFiles = synchronizedGroupFiles()
         try identifyFiles(in: groupFiles)

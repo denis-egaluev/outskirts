@@ -83,10 +83,16 @@ final class UsedDeclarationMarker: GraphOnlyMutator {
 
             graph.markUsed(declaration)
 
-            for reference in [declaration.references, declaration.related].joined() {
-                if let referenced = graph.declaration(withUsr: reference.usr), !graph.isUsed(referenced) {
-                    graph.recordUsePredecessor(.reference(reference, from: declaration), for: referenced)
-                    pending.append(referenced)
+            // With `every_variant`, a used declaration makes its variant twins used, and their references are followed
+            // too: the twins compare equal, so none of them is reached on its own.
+            for source in graph.withVariantTwins(declaration) {
+                graph.markUsed(source)
+
+                for reference in [source.references, source.related].joined() {
+                    if let referenced = graph.declaration(withUsr: reference.usr), !graph.isUsed(referenced) {
+                        graph.recordUsePredecessor(.reference(reference, from: source), for: referenced)
+                        pending.append(referenced)
+                    }
                 }
             }
         }
@@ -122,11 +128,15 @@ final class UsedDeclarationMarker: GraphOnlyMutator {
 
             graph.markUsed(declaration)
 
-            let references = [declaration.references, declaration.related].joined().sorted { $0.location < $1.location }
-            for reference in references {
-                if let referenced = graph.declaration(withUsr: reference.usr), !graph.isUsed(referenced) {
-                    graph.recordUsePredecessor(.reference(reference, from: declaration), for: referenced)
-                    queue.append(referenced)
+            for source in graph.withVariantTwins(declaration) {
+                graph.markUsed(source)
+
+                let references = [source.references, source.related].joined().sorted { $0.location < $1.location }
+                for reference in references {
+                    if let referenced = graph.declaration(withUsr: reference.usr), !graph.isUsed(referenced) {
+                        graph.recordUsePredecessor(.reference(reference, from: source), for: referenced)
+                        queue.append(referenced)
+                    }
                 }
             }
         }
@@ -197,7 +207,9 @@ final class UsedDeclarationMarker: GraphOnlyMutator {
     }
 
     private func ignoreUnusedDescendents(in decls: Set<Declaration>, unusedDeclarations: Set<Declaration>) {
-        for decl in decls {
+        // With `every_variant`, the variant twins of a declaration share its use, and their own parameters are only
+        // reachable from them.
+        for decl in decls.flatMap(graph.withVariantTwins) {
             guard !decl.declarations.isEmpty || !decl.unusedParameters.isEmpty
             else { continue }
 

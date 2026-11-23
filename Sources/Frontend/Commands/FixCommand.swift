@@ -128,11 +128,14 @@ extension FixCommand {
     /// Why a scan may leave out code that uses a String Catalog key.
     enum PartialScan: Equatable {
         case xcodeProject
+        case everyVariant
         /// An option that leaves code out of the index.
         case narrowing(String)
 
         init?(of projectKind: ProjectKind, configuration: Configuration) {
-            if case .xcode = projectKind {
+            if configuration.everyVariant {
+                self = .everyVariant
+            } else if case .xcode = projectKind {
                 self = .xcodeProject
             } else if let narrowing = Self.narrowingOption(of: configuration) {
                 self = .narrowing(narrowing)
@@ -145,6 +148,8 @@ extension FixCommand {
             let message = switch self {
             case .xcodeProject:
                 "'fix' removes the String Catalog keys that no scanned code uses, but an Xcode project is only built for the listed schemes, in the Debug configuration: a key used only by a target outside these schemes, or by code that another configuration compiles, would be removed. List every scheme that builds code using the catalogs in '--schemes'."
+            case .everyVariant:
+                "'fix' does not accept every_variant scans yet: the keys it would remove are not checked against every build variant. Scan without every_variant."
             case let .narrowing(option):
                 "'fix' removes the String Catalog keys that no scanned code uses, but '\(option)' leaves code out of the scan: a key used only there would be removed. Remove '\(option)'."
             }

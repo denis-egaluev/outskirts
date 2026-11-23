@@ -73,21 +73,22 @@ final class ShellTest: XCTestCase {
     func testGitRun_isStoppedWithTheOtherProcesses() throws {
         let directory = try makeTemporaryDirectory("outskirts-git-store")
         addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
-        let store = ShellProcessStore()
+        let pidFile = directory.appendingPathComponent("sleep")
+        // A grace period far beyond the bound below: stopping in time proves the signal stopped git, not the kill.
+        let store = ShellProcessStore(gracePeriod: .seconds(120))
         DispatchQueue.global().async {
-            _ = try? Git.run(["-c", "alias.wait=!sleep 10", "wait"], in: FilePath(directory.path), store: store)
+            let alias = "alias.wait=!sleep 60 & echo $! > '\(pidFile.path)'; wait"
+            _ = try? Git.run(["-c", alias, "wait"], in: FilePath(directory.path), store: store)
         }
-
-        let deadline = Date().addingTimeInterval(10)
-        while store.count == 0, Date() < deadline {
-            usleep(10000)
-        }
+        let sleep = try XCTUnwrap(waitForPid(in: pidFile))
+        addTeardownBlock { kill(sleep, SIGKILL) }
         XCTAssertEqual(store.count, 1)
 
         let stopped = Date()
         store.stopRunning(signal: SIGTERM)
         XCTAssertTrue(store.isStopping)
-        XCTAssertLessThan(Date().timeIntervalSince(stopped), 5)
+        XCTAssertLessThan(Date().timeIntervalSince(stopped), 60, "git was not stopped by the signal")
+        XCTAssertTrue(waitUntil { ProcessLiveness.isGone(sleep) }, "the process started by git outlived the signal")
     }
 
     /// The signal reaches every process the command started, not only the one the store launched.

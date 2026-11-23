@@ -12,6 +12,7 @@ Issues carry a priority label, from `P1` (first) to `P3`.
 
 Recent releases, newest first:
 
+- **3.28.0** (2026-11-23): preview of the 4.0 variant scan (`--every-variant`), which builds every platform, configuration and condition variant and scans them together; `clear-cache` and eviction fixes.
 - **3.27.0** (2026-11-20): unused parameters shadowed by `for`, `if let`, `case`, `catch` and closure bindings reported; trailing ignore comments on enum cases and empty extensions honored; unused system imports of generic projects; `--changed-lines` and `xcode` format fixes.
 - **3.26.0** (2026-11-17): String Catalog keys decided by the index store on macOS, so plain `String` literals no longer keep a key; keys passed to generic subscripts retained; first-line positions of files with a byte order mark fixed.
 - **3.25.0** (2026-11-15): commands run with an empty standard input and in their own process group, DerivedData keyed anew, targets of the same name in distinct projects kept apart, fewer false unused parameters, `exclude_targets` matched by module name, safer git handling for `--changed-since` and `fix`.
@@ -47,7 +48,7 @@ Recent releases, newest first:
 In order, each one opt-in:
 
 - **Act on results**: `fix` covers unused String Catalog keys since 3.23.0; unused imports and redundant `public` follow once every variant is scanned.
-- **Every variant**: scan the union of platform and configuration variants as an opt-in, the prerequisite for removing unused imports and declarations with `fix`.
+- **Every variant**: available as a preview since 3.28.0, see [Every variant (4.0 preview)](troubleshooting.md#every-variant-40-preview). It scans the union of platform and configuration variants as an opt-in, the prerequisite for removing unused imports and declarations with `fix`.
 - Opt-in analysis of enum cases only matched in patterns and never constructed.
 - Prebuilt binaries beyond macOS 27.
 

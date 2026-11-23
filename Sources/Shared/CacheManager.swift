@@ -36,12 +36,14 @@ public enum CacheManager {
     }
 
     /// Removes every entry of the cache directory, then the directory itself. Entries that have already
-    /// vanished are ignored. Symbolic links are removed, never followed.
+    /// vanished are ignored. Symbolic links are removed, never followed. When the cache directory itself is a
+    /// symbolic link, its target is emptied and the link is kept.
     public static func clear(cacheDirectory: URL, fileManager: FileManager = .default) throws {
+        let isLink = isSymbolicLink(cacheDirectory)
         let entries: [URL]
         do {
             entries = try fileManager.contentsOfDirectory(
-                at: cacheDirectory,
+                at: isLink ? cacheDirectory.resolvingSymlinksInPath() : cacheDirectory,
                 includingPropertiesForKeys: nil,
                 options: []
             )
@@ -64,7 +66,7 @@ public enum CacheManager {
         }
 
         // Not recursive: a scan may have created a build folder since the listing.
-        if failures.isEmpty, rmdir(cacheDirectory.path) != 0, ![ENOENT, ENOTEMPTY, EEXIST].contains(errno) {
+        if failures.isEmpty, !isLink, rmdir(cacheDirectory.path) != 0, ![ENOENT, ENOTEMPTY, EEXIST].contains(errno) {
             let error = NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSFilePathErrorKey: cacheDirectory.path])
             failures.append(CacheEntryError(path: cacheDirectory.path, underlying: error))
         }
@@ -106,6 +108,26 @@ public enum CacheManager {
         try evictStale(
             cacheDirectory: cacheDirectory,
             maxAgeDays: maxAgeDays,
+            maxSizeGB: maxSizeGB,
+            keeping: keeping.map { [$0] } ?? [],
+            now: now,
+            fileManager: fileManager
+        )
+    }
+
+    /// Same as the single folder variant, keeping every folder of `keeping`, such as the builds of the variants of a scan.
+    @discardableResult
+    public static func evictStale(
+        cacheDirectory: URL,
+        maxAgeDays: Int,
+        maxSizeGB: Int = 0,
+        keeping: Set<URL>,
+        now: Date = Date(),
+        fileManager: FileManager = .default
+    ) throws -> [EvictedCacheEntry] {
+        try evictStale(
+            cacheDirectory: cacheDirectory,
+            maxAgeDays: maxAgeDays,
             maxSizeBytes: bytes(gigabytes: maxSizeGB),
             keeping: keeping,
             now: now,
@@ -129,10 +151,28 @@ public enum CacheManager {
         now: Date = Date(),
         fileManager: FileManager = .default
     ) throws -> [EvictedCacheEntry] {
+        try evictStale(
+            cacheDirectory: cacheDirectory,
+            maxAgeDays: maxAgeDays,
+            maxSizeBytes: maxSizeBytes,
+            keeping: keeping.map { [$0] } ?? [],
+            now: now,
+            fileManager: fileManager
+        )
+    }
+
+    static func evictStale(
+        cacheDirectory: URL,
+        maxAgeDays: Int,
+        maxSizeBytes: Int64,
+        keeping: Set<URL>,
+        now: Date = Date(),
+        fileManager: FileManager = .default
+    ) throws -> [EvictedCacheEntry] {
         guard fileManager.fileExists(atPath: cacheDirectory.path) else { return [] }
 
         let cutoff = now.addingTimeInterval(-Double(maxAgeDays) * 86400)
-        let keptName = keeping?.lastPathComponent
+        let keptNames = Set(keeping.map(\.lastPathComponent))
         let entries = try fileManager.contentsOfDirectory(
             at: cacheDirectory,
             includingPropertiesForKeys: [.contentModificationDateKey],
@@ -149,7 +189,8 @@ public enum CacheManager {
             do {
                 try fileManager.removeItem(at: entry)
             } catch {
-                if !isMissing(error) {
+                // Another eviction may be removing the same leftover: once it is gone, there is nothing to report.
+                if !isMissing(error), exists(entry) {
                     failures.append(CacheEntryError(path: entry.path, underlying: error))
                 }
             }
@@ -170,7 +211,7 @@ public enum CacheManager {
         }
 
         for entry in entries where entry.lastPathComponent.hasPrefix(derivedDataPrefix) {
-            let isKept = entry.lastPathComponent == keptName
+            let isKept = keptNames.contains(entry.lastPathComponent)
             let modified = try entry.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
             let isStale = !isKept
                 && (isOrphan(entry, fileManager: fileManager) || (maxAgeDays > 0 && (modified.map { $0 < cutoff } ?? false)))
@@ -220,6 +261,17 @@ public enum CacheManager {
               let path = String(data: data, encoding: .utf8), !path.isEmpty else { return false }
 
         return !fileManager.fileExists(atPath: path)
+    }
+
+    private static func isSymbolicLink(_ url: URL) -> Bool {
+        var info = stat()
+        return lstat(url.path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFLNK
+    }
+
+    /// Whether anything, a dangling symbolic link included, is at `url`.
+    private static func exists(_ url: URL) -> Bool {
+        var info = stat()
+        return lstat(url.path, &info) == 0 || errno != ENOENT
     }
 
     private static func isMissing(_ error: Error) -> Bool {

@@ -11,8 +11,8 @@ name: Bottle
 # .sha256, for tools that want a binary without Homebrew; the archive job runs it on macos-26
 # with /Applications/Xcode.app as the only Xcode.
 #
-# Read-only: bottles, JSON files and the archive are workflow artifacts. On a push to master or a
-# tag, the bottle job also attests their build provenance (`gh attestation verify`). The block
+# Read-only: bottles, JSON files and the archive are workflow artifacts. On a push to master, the
+# bottle job also attests their build provenance (`gh attestation verify`). The block
 # job merges every JSON file and prints the formula bottle block (scripts/bottle-block.sh) in its
 # summary.
 #
@@ -22,7 +22,8 @@ name: Bottle
 # neither installs with `brew install --build-from-source`. Apple's dylib is never bundled.
 on:
   # Pull requests bottle only when the build itself changes; master bottles every source change, so a broken bottle
-  # shows up before a release tag.
+  # shows up before a release tag. The public master only receives release commits, so the release attaches the
+  # artifacts of its master run; a tag push does not bottle again (workflow_dispatch rebuilds an existing tag).
   pull_request:
     paths:
       - Package.swift
@@ -39,8 +40,6 @@ on:
       - Sources/**
       - .github/workflows/bottle.yml
       - scripts/bottle-*.sh
-    tags:
-      - "[0-9]+.[0-9]+.[0-9]+"
   workflow_dispatch:
     inputs:
       tag:
@@ -117,7 +116,7 @@ jobs:
       - name: Resolve the version
         id: version
         env:
-          TAG: ${{ inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+          TAG: ${{ inputs.tag || '' }}
         run: |
           source_version=$(sed -nE 's/^(public )?let PeripheryVersion = "([0-9.]+)"$/\2/p' Sources/Shared/Version.swift)
           if [[ -z $source_version ]]; then

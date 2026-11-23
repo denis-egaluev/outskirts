@@ -120,7 +120,7 @@ DerivedData directories (as passed to xcodebuild -derivedDataPath), relative to 
 
 Key `derived_data_path` · list of strings · default empty.
 
-See [Troubleshooting: Results in the wrong place or false positives in one file](troubleshooting.md#results-in-the-wrong-place-or-false-positives-in-one-file).
+See [Troubleshooting: Results in the wrong place or false positives in one file](troubleshooting.md#results-in-the-wrong-place-or-false-positives-in-one-file), [Troubleshooting: Every variant (4.0 preview)](troubleshooting.md#every-variant-40-preview).
 
 ### `--strict-index`
 
@@ -141,6 +141,56 @@ Fail the scan when the index data misses a scanned target on one of the platform
 Key `strict_index_coverage` · flag, `--no-strict-index-coverage` to switch off · default `false`.
 
 See [Continuous integration: Reusing the build](ci.md#reusing-the-build), [Troubleshooting: Index data missing a target or a platform](troubleshooting.md#index-data-missing-a-target-or-a-platform).
+
+### `--every-variant`
+
+Since 3.28.0.
+
+(4.0 preview) Build and index every build variant (platforms, configurations, condition sets) instead of one, and merge them into one scan.
+
+Key `every_variant` · flag, `--no-every-variant` to switch off · default `false`.
+
+See [Troubleshooting: Every variant (4.0 preview)](troubleshooting.md#every-variant-40-preview), [Roadmap: Published](roadmap.md#published).
+
+### `--variant-platforms`
+
+Since 3.28.0.
+
+(4.0 preview) Platforms built by 'every_variant'; empty means the platforms the targets support.
+
+Key `variant_platforms` · list of strings · default empty.
+
+See [Troubleshooting: Every variant (4.0 preview)](troubleshooting.md#every-variant-40-preview).
+
+### `--variant-configurations`
+
+Since 3.28.0.
+
+(4.0 preview) Build configurations built by 'every_variant', or 'all'; empty means Debug.
+
+Key `variant_configurations` · list of strings · default empty.
+
+See [Troubleshooting: Every variant (4.0 preview)](troubleshooting.md#every-variant-40-preview).
+
+### `--variant-conditions`
+
+Since 3.28.0.
+
+(4.0 preview) Sets of compilation conditions built by 'every_variant', one variant per set.
+
+Key `variant_conditions` · list of strings · default empty.
+
+See [Troubleshooting: Every variant (4.0 preview)](troubleshooting.md#every-variant-40-preview).
+
+### `--variant-triples`
+
+Since 3.28.0.
+
+(4.0 preview) Target triples built by 'every_variant' for Swift packages.
+
+Key `variant_triples` · list of strings · default empty.
+
+See [Troubleshooting: Every variant (4.0 preview)](troubleshooting.md#every-variant-40-preview).
 
 ### `--index-built-from`
 

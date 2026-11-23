@@ -20,7 +20,7 @@ open class SourceGraphTestCase: XCTestCase {
 
     private var scopeStack: [DeclarationScope] = []
 
-    override open class func setUp() {
+    override public class func setUp() {
         super.setUp()
         logger = Logger(quiet: true, verbose: false, colorMode: .never)
         shell = ShellImpl(logger: logger)
@@ -34,7 +34,7 @@ open class SourceGraphTestCase: XCTestCase {
         graph = SourceGraph(configuration: configuration, logger: logger)
     }
 
-    override open func tearDown() {
+    override public final func tearDown() {
         super.tearDown()
 
         if (testRun?.failureCount ?? 0) > 0 {
@@ -44,7 +44,7 @@ open class SourceGraphTestCase: XCTestCase {
         }
     }
 
-    func index(sourceFiles: [FilePath]? = nil, configuration: Configuration = .init()) {
+    final func index(sourceFiles: [FilePath]? = nil, configuration: Configuration = .init()) {
         Self.index(sourceFiles: sourceFiles, configuration: configuration)
     }
 
@@ -85,24 +85,24 @@ open class SourceGraphTestCase: XCTestCase {
     }
 
     /// What `scan --explain` prints for the query, from the last analysis.
-    func explanation(of query: String) -> String {
+    final func explanation(of query: String) -> String {
         DeclarationExplainer(graph: Self.graph, configuration: Self.indexedConfiguration).explain([query])
     }
 
     /// The number of entries the last analysis recorded for `--explain`, which is zero without it.
-    var recordedExplanationEntryCount: Int {
+    final var recordedExplanationEntryCount: Int {
         Self.graph.retentionReasons.count + Self.graph.usePredecessors.count + Self.graph.discardedReferencesByUsr.count
             + Self.graph.unindexedSourceFilesByModule.count
     }
 
     /// The modules whose import is reported unused in the source file with the given name.
-    func unusedImportedModules(inFileNamed fileName: String) -> Set<String> {
+    final func unusedImportedModules(inFileNamed fileName: String) -> Set<String> {
         Set(Self.graph.unusedModuleImports
             .filter { $0.location.file.path.lastComponent?.string == fileName }
             .map(\.name))
     }
 
-    func assertReferenced(_ description: DeclarationDescription, scopedAssertions: (() -> Void)? = nil, file: StaticString = #file, line: UInt = #line) {
+    final func assertReferenced(_ description: DeclarationDescription, scopedAssertions: (() -> Void)? = nil, file: StaticString = #file, line: UInt = #line) {
         if case .module = description.kind {
             if let declaration = Self.graph.unusedModuleImports.first(where: { $0.name == description.name }) {
                 XCTFail("Expected declaration to be referenced: \(declaration)", file: file, line: line)
@@ -120,7 +120,7 @@ open class SourceGraphTestCase: XCTestCase {
         }
     }
 
-    func assertNotReferenced(_ description: DeclarationDescription, file: StaticString = #file, line: UInt = #line) {
+    final func assertNotReferenced(_ description: DeclarationDescription, file: StaticString = #file, line: UInt = #line) {
         if case .module = description.kind {
             if Self.graph.unusedModuleImports.first(where: { $0.name == description.name }) == nil {
                 XCTFail("Expected module to not be referenced: \(description.name)", file: file, line: line)
@@ -135,13 +135,13 @@ open class SourceGraphTestCase: XCTestCase {
         }
     }
 
-    func assertNotIndexed(_ description: DeclarationDescription, file: StaticString = #file, line: UInt = #line) {
+    final func assertNotIndexed(_ description: DeclarationDescription, file: StaticString = #file, line: UInt = #line) {
         if let declaration = materialize(description, in: Self.allIndexedDeclarations, fail: false, file: file, line: line) {
             XCTFail("Expected declaration to not be indexed: \(declaration)", file: file, line: line)
         }
     }
 
-    func assertRedundantProtocol(
+    final func assertRedundantProtocol(
         _ name: String,
         implementedBy conformances: DeclarationDescription...,
         inherits inheritedProtocols: DeclarationDescription...,
@@ -165,7 +165,7 @@ open class SourceGraphTestCase: XCTestCase {
         }
     }
 
-    func assertNotRedundantProtocol(_ name: String, file: StaticString = #file, line: UInt = #line) {
+    final func assertNotRedundantProtocol(_ name: String, file: StaticString = #file, line: UInt = #line) {
         guard let declaration = materialize(.protocol(name), file: file, line: line) else { return }
 
         if Self.results.redundantProtocolDeclarations.keys.contains(declaration) {
@@ -173,7 +173,7 @@ open class SourceGraphTestCase: XCTestCase {
         }
     }
 
-    func assertAccessibility(_ description: DeclarationDescription, _ accessibility: Accessibility, scopedAssertions: (() -> Void)? = nil, file: StaticString = #file, line: UInt = #line) {
+    final func assertAccessibility(_ description: DeclarationDescription, _ accessibility: Accessibility, scopedAssertions: (() -> Void)? = nil, file: StaticString = #file, line: UInt = #line) {
         guard let declaration = materialize(description, file: file, line: line) else { return }
 
         if declaration.accessibility.value != accessibility {
@@ -185,7 +185,7 @@ open class SourceGraphTestCase: XCTestCase {
         scopeStack.removeLast()
     }
 
-    func assertRedundantPublicAccessibility(_ description: DeclarationDescription, scopedAssertions: (() -> Void)? = nil, file: StaticString = #file, line: UInt = #line) {
+    final func assertRedundantPublicAccessibility(_ description: DeclarationDescription, scopedAssertions: (() -> Void)? = nil, file: StaticString = #file, line: UInt = #line) {
         guard let declaration = materialize(description, in: Self.allIndexedDeclarations, file: file, line: line) else { return }
 
         if !Self.results.redundantPublicAccessibilityDeclarations.contains(declaration) {
@@ -197,7 +197,7 @@ open class SourceGraphTestCase: XCTestCase {
         scopeStack.removeLast()
     }
 
-    func assertNotRedundantPublicAccessibility(_ description: DeclarationDescription, scopedAssertions: (() -> Void)? = nil, file: StaticString = #file, line: UInt = #line) {
+    final func assertNotRedundantPublicAccessibility(_ description: DeclarationDescription, scopedAssertions: (() -> Void)? = nil, file: StaticString = #file, line: UInt = #line) {
         guard let declaration = materialize(description, in: Self.allIndexedDeclarations, file: file, line: line) else { return }
 
         if Self.results.redundantPublicAccessibilityDeclarations.contains(declaration) {
@@ -209,7 +209,7 @@ open class SourceGraphTestCase: XCTestCase {
         scopeStack.removeLast()
     }
 
-    func assertRedundantOpenAccessibility(_ description: DeclarationDescription, scopedAssertions: (() -> Void)? = nil, file: StaticString = #file, line: UInt = #line) {
+    final func assertRedundantOpenAccessibility(_ description: DeclarationDescription, scopedAssertions: (() -> Void)? = nil, file: StaticString = #file, line: UInt = #line) {
         guard let declaration = materialize(description, in: Self.allIndexedDeclarations, file: file, line: line) else { return }
 
         if !Self.results.redundantOpenAccessibilityDeclarations.contains(declaration) {
@@ -221,7 +221,7 @@ open class SourceGraphTestCase: XCTestCase {
         scopeStack.removeLast()
     }
 
-    func assertNotRedundantOpenAccessibility(_ description: DeclarationDescription, scopedAssertions: (() -> Void)? = nil, file: StaticString = #file, line: UInt = #line) {
+    final func assertNotRedundantOpenAccessibility(_ description: DeclarationDescription, scopedAssertions: (() -> Void)? = nil, file: StaticString = #file, line: UInt = #line) {
         guard let declaration = materialize(description, in: Self.allIndexedDeclarations, file: file, line: line) else { return }
 
         if Self.results.redundantOpenAccessibilityDeclarations.contains(declaration) {
@@ -233,7 +233,7 @@ open class SourceGraphTestCase: XCTestCase {
         scopeStack.removeLast()
     }
 
-    func assertMissingFinal(_ description: DeclarationDescription, scopedAssertions: (() -> Void)? = nil, file: StaticString = #file, line: UInt = #line) {
+    final func assertMissingFinal(_ description: DeclarationDescription, scopedAssertions: (() -> Void)? = nil, file: StaticString = #file, line: UInt = #line) {
         guard let declaration = materialize(description, in: Self.allIndexedDeclarations, file: file, line: line) else { return }
 
         if !Self.results.missingFinalDeclarations.contains(declaration) {
@@ -245,7 +245,7 @@ open class SourceGraphTestCase: XCTestCase {
         scopeStack.removeLast()
     }
 
-    func assertNotMissingFinal(_ description: DeclarationDescription, scopedAssertions: (() -> Void)? = nil, file: StaticString = #file, line: UInt = #line) {
+    final func assertNotMissingFinal(_ description: DeclarationDescription, scopedAssertions: (() -> Void)? = nil, file: StaticString = #file, line: UInt = #line) {
         guard let declaration = materialize(description, in: Self.allIndexedDeclarations, file: file, line: line) else { return }
 
         if Self.results.missingFinalDeclarations.contains(declaration) {
@@ -257,7 +257,7 @@ open class SourceGraphTestCase: XCTestCase {
         scopeStack.removeLast()
     }
 
-    func assertRedundantAccessLevel(_ description: DeclarationDescription, file: StaticString = #file, line: UInt = #line) {
+    final func assertRedundantAccessLevel(_ description: DeclarationDescription, file: StaticString = #file, line: UInt = #line) {
         guard let declaration = materialize(description, in: Self.allIndexedDeclarations, file: file, line: line) else { return }
 
         if !Self.results.redundantAccessLevelDeclarations.contains(declaration) {
@@ -265,7 +265,7 @@ open class SourceGraphTestCase: XCTestCase {
         }
     }
 
-    func assertNotRedundantAccessLevel(_ description: DeclarationDescription, file: StaticString = #file, line: UInt = #line) {
+    final func assertNotRedundantAccessLevel(_ description: DeclarationDescription, file: StaticString = #file, line: UInt = #line) {
         guard let declaration = materialize(description, in: Self.allIndexedDeclarations, file: file, line: line) else { return }
 
         if Self.results.redundantAccessLevelDeclarations.contains(declaration) {
@@ -273,7 +273,7 @@ open class SourceGraphTestCase: XCTestCase {
         }
     }
 
-    func assertUsedParameter(_ name: String, file: StaticString = #file, line: UInt = #line) {
+    final func assertUsedParameter(_ name: String, file: StaticString = #file, line: UInt = #line) {
         let declaration = materialize(.varParameter(name), fail: false, file: file, line: line)
 
         if declaration != nil {
@@ -281,7 +281,7 @@ open class SourceGraphTestCase: XCTestCase {
         }
     }
 
-    func assertAssignOnlyProperty(_ description: DeclarationDescription, scopedAssertions: (() -> Void)? = nil, file: StaticString = #file, line: UInt = #line) {
+    final func assertAssignOnlyProperty(_ description: DeclarationDescription, scopedAssertions: (() -> Void)? = nil, file: StaticString = #file, line: UInt = #line) {
         guard let declaration = materialize(description, file: file, line: line) else { return }
 
         if !Self.results.assignOnlyPropertyDeclarations.contains(declaration) {
@@ -293,7 +293,7 @@ open class SourceGraphTestCase: XCTestCase {
         scopeStack.removeLast()
     }
 
-    func assertUnassignedOptionalProperty(_ description: DeclarationDescription, file: StaticString = #file, line: UInt = #line) {
+    final func assertUnassignedOptionalProperty(_ description: DeclarationDescription, file: StaticString = #file, line: UInt = #line) {
         guard let declaration = materialize(description, file: file, line: line) else { return }
 
         if !Self.results.unassignedOptionalPropertyDeclarations.contains(declaration) {
@@ -301,7 +301,7 @@ open class SourceGraphTestCase: XCTestCase {
         }
     }
 
-    func assertNotUnassignedOptionalProperty(_ description: DeclarationDescription, file: StaticString = #file, line: UInt = #line) {
+    final func assertNotUnassignedOptionalProperty(_ description: DeclarationDescription, file: StaticString = #file, line: UInt = #line) {
         guard let declaration = materialize(description, file: file, line: line) else { return }
 
         if Self.results.unassignedOptionalPropertyDeclarations.contains(declaration) {
@@ -309,7 +309,7 @@ open class SourceGraphTestCase: XCTestCase {
         }
     }
 
-    func assertNotAssignOnlyProperty(_ description: DeclarationDescription, scopedAssertions: (() -> Void)? = nil, file: StaticString = #file, line: UInt = #line) {
+    final func assertNotAssignOnlyProperty(_ description: DeclarationDescription, scopedAssertions: (() -> Void)? = nil, file: StaticString = #file, line: UInt = #line) {
         guard let declaration = materialize(description, file: file, line: line) else { return }
 
         if Self.graph.assignOnlyProperties.contains(declaration) {
@@ -321,7 +321,7 @@ open class SourceGraphTestCase: XCTestCase {
         scopeStack.removeLast()
     }
 
-    func assertSuperfluousIgnoreCommand(_ description: DeclarationDescription, file: StaticString = #file, line: UInt = #line) {
+    final func assertSuperfluousIgnoreCommand(_ description: DeclarationDescription, file: StaticString = #file, line: UInt = #line) {
         // For parameters, we need to check results directly since they're created at result-building time
         if description.kind == .varParameter {
             let found = Self.results.superfluousIgnoreCommandDeclarations.contains {
@@ -340,7 +340,7 @@ open class SourceGraphTestCase: XCTestCase {
         }
     }
 
-    func assertNotSuperfluousIgnoreCommand(_ description: DeclarationDescription, file: StaticString = #file, line: UInt = #line) {
+    final func assertNotSuperfluousIgnoreCommand(_ description: DeclarationDescription, file: StaticString = #file, line: UInt = #line) {
         // For parameters, we need to check results directly since they're created at result-building time
         if description.kind == .varParameter {
             let found = Self.results.superfluousIgnoreCommandDeclarations.contains {
@@ -359,7 +359,7 @@ open class SourceGraphTestCase: XCTestCase {
         }
     }
 
-    func assertOverrides(_ description: DeclarationDescription, _ overrides: [CommentCommand.Override], file: StaticString = #file, line: UInt = #line) {
+    final func assertOverrides(_ description: DeclarationDescription, _ overrides: [CommentCommand.Override], file: StaticString = #file, line: UInt = #line) {
         guard let declaration = materialize(description, file: file, line: line) else {
             XCTFail("Failed to materialize \(description)", file: file, line: line)
             return
@@ -380,7 +380,7 @@ open class SourceGraphTestCase: XCTestCase {
         }
     }
 
-    func module(_ name: String, scopedAssertions: (() -> Void)? = nil) {
+    final func module(_ name: String, scopedAssertions: (() -> Void)? = nil) {
         scopeStack.append(.module(name))
         scopedAssertions?()
         scopeStack.removeLast()

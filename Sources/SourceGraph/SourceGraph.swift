@@ -84,14 +84,18 @@ public final class SourceGraph {
     private var allDeclarationsByUsr: [String: Declaration] = [:]
     private var moduleToExportingModules: [String: Set<String>] = [:]
     private var syntheticUsrLocations: [String: [Location]] = [:]
+    private(set) var variantTwins = VariantTwins()
 
     private let configuration: Configuration
+    /// Whether declarations sharing a USR across build variants are kept as twins, only with `every_variant`.
+    public let keepsVariantTwins: Bool
     let logger: Logger
 
     public init(configuration: Configuration, logger: Logger) {
         self.configuration = configuration
         self.logger = logger
         recordsExplanations = !configuration.explain.isEmpty
+        keepsVariantTwins = configuration.everyVariant
     }
 
     public func indexingComplete() {
@@ -263,6 +267,11 @@ public final class SourceGraph {
         allDeclarationsByKind[declaration.kind, default: []].insert(declaration)
         for usr in declaration.usrs {
             if let existingDecl = allDeclarationsByUsr[usr] {
+                if keepsVariantTwins, VariantTwins.areTwins(declaration, existingDecl) {
+                    addVariantTwin(declaration, of: existingDecl, usr: usr)
+                    continue
+                }
+
                 logger.warn("""
                 Declaration conflict detected: a declaration with the USR '\(usr)' has already been indexed.
                 This issue can cause inconsistent and incorrect results.
@@ -285,6 +294,22 @@ public final class SourceGraph {
         declarations.forEach { add($0) }
     }
 
+    /// Keeps both twins without a warning. The twin that sorts first is the canonical one, whatever the indexing
+    /// order: `declaration(withUsr:)` returns it, the graph sets hold it and it parents the children of every twin,
+    /// so that it is the one reported, once.
+    private func addVariantTwin(_ declaration: Declaration, of existing: Declaration, usr: String) {
+        guard variantTwins.add(declaration, of: existing, usr: usr), declaration < existing else { return }
+
+        allDeclarationsByUsr[usr] = declaration
+        variantTwins.moveChildren(from: existing, to: declaration)
+        if allDeclarations.remove(existing) != nil {
+            allDeclarations.insert(declaration)
+        }
+        if allDeclarationsByKind[existing.kind]?.remove(existing) != nil {
+            allDeclarationsByKind[declaration.kind, default: []].insert(declaration)
+        }
+    }
+
     public func remove(_ declaration: Declaration) {
         declaration.parent?.declarations.remove(declaration)
         allDeclarations.remove(declaration)
@@ -295,6 +320,7 @@ public final class SourceGraph {
         suppressedAssignOnlyProperties.remove(declaration)
         unassignedOptionalProperties.remove(declaration)
         declaration.usrs.forEach { allDeclarationsByUsr.removeValue(forKey: $0) }
+        variantTwins.remove(usrs: declaration.usrs)
     }
 
     public func add(_ reference: Reference) {

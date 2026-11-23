@@ -1,3 +1,14 @@
+## 3.28.0 (2026-11-23)
+
+##### Enhancements
+
+- Preview of the 4.0 variant scan, off by default: `--every-variant` (`every_variant: true`) builds and indexes every build variant of the project, each with its own DerivedData or scratch path, then scans them together, so a declaration used by any variant is used. Platforms default to those the targets support, read from the project or, when an `.xcconfig` file sets them, from the resolved build settings of the scheme; each scheme is built only for the platforms of its targets. `--variant-platforms`, `--variant-configurations` (`all` for every configuration), `--variant-conditions` and `--variant-triples` choose the variants. Outside Debug, outskirts builds with `ENABLE_TESTABILITY=YES` (Xcode) or `-enable-testing` (Swift packages). When a variant fails to build, the error relays the build errors and only suggests installing a platform or SDK when one is missing. `fix` refuses these scans unless `--allow-partial-scan` is given. Results and options may change before 4.0; see "Every variant (4.0 preview)" in the troubleshooting guide.
+
+##### Bug Fixes
+
+- `clear-cache` on a cache directory that is a symbolic link empties its target and keeps the link instead of failing.
+- Cache eviction no longer warns when another eviction removed the same leftover first.
+
 ## 3.27.0 (2026-11-20)
 
 ##### Bug Fixes

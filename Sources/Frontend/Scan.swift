@@ -28,6 +28,11 @@ final class Scan {
     }
 
     func perform(project: Project) throws -> Output {
+        if let notice = Self.everyVariantPreviewNotice(configuration) {
+            logger.info(notice)
+        }
+        Self.everyVariantWarnings(configuration).forEach { logger.warn($0) }
+
         if !configuration.derivedDataPath.isEmpty {
             configuration.indexStorePath = try DerivedDataIndexStore.merge(
                 indexStorePaths: configuration.indexStorePath,
@@ -77,6 +82,25 @@ final class Scan {
             "'--skip-build' is set"
         }
         return "The '--clean-build' option has no effect as \(reason): rebuild the index store yourself to start from an empty one."
+    }
+
+    /// `every_variant` is a 4.0 preview.
+    static func everyVariantPreviewNotice(_ configuration: Configuration) -> String? {
+        configuration.everyVariant ? "every_variant is a 4.0 preview: results and options may change" : nil
+    }
+
+    /// The options that `every_variant` ignores or makes redundant.
+    static func everyVariantWarnings(_ configuration: Configuration) -> [String] {
+        guard configuration.everyVariant else { return [] }
+
+        var warnings: [String] = []
+        if !configuration.indexStorePath.isEmpty || !configuration.derivedDataPath.isEmpty {
+            warnings.append("every_variant is ignored: the given index stores are scanned as they are")
+        }
+        if !configuration.disablePlatformConditionalRetention {
+            warnings.append("platform conditional retention is redundant with every_variant and will be replaced in 4.0")
+        }
+        return warnings
     }
 
     // MARK: - Private

@@ -37,6 +37,21 @@ final class ConfigurationSchemaTest: XCTestCase {
         }
     }
 
+    func testEveryVariantKeysArePreviewsWithEmptyDefaults() throws {
+        let properties = try XCTUnwrap(generatedSchema()["properties"] as? [String: [String: Any]])
+
+        XCTAssertEqual(properties["every_variant"]?["type"] as? String, "boolean")
+        XCTAssertEqual(properties["every_variant"]?["default"] as? Bool, false)
+        for key in ["every_variant", "variant_platforms", "variant_configurations", "variant_conditions", "variant_triples"] {
+            let property = try XCTUnwrap(properties[key], "no '\(key)' in the schema")
+            XCTAssertTrue((property["description"] as? String ?? "").hasPrefix("(4.0 preview) "), key)
+            if key != "every_variant" {
+                XCTAssertEqual(property["type"] as? [String], ["array", "string"], key)
+                XCTAssertEqual((property["default"] as? [Any])?.count, 0, key)
+            }
+        }
+    }
+
     func testSchemaListsTheCasesOfFormatAndColorAndRejectsUnknownKeys() throws {
         let schema = try generatedSchema()
         let properties = try XCTUnwrap(schema["properties"] as? [String: [String: Any]])

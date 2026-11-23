@@ -33,4 +33,32 @@ final class ScanCleanBuildWarningTest: XCTestCase {
         XCTAssertNil(Scan.ignoredCleanBuildWarning(configuration(cleanBuild: true, skipBuild: false)))
         XCTAssertNil(Scan.ignoredCleanBuildWarning(configuration(cleanBuild: false, skipBuild: true, derivedDataPath: ["DD"])))
     }
+
+    private func everyVariant(_ enabled: Bool, indexStorePath: [FilePath] = [], derivedDataPath: [FilePath] = [], platformConditionalRetention: Bool = false) -> Configuration {
+        let configuration = configuration(cleanBuild: false, skipBuild: false, indexStorePath: indexStorePath, derivedDataPath: derivedDataPath)
+        configuration.apply(\.$everyVariant, enabled)
+        configuration.apply(\.$disablePlatformConditionalRetention, !platformConditionalRetention)
+        return configuration
+    }
+
+    func testEveryVariant_announcesThePreview() {
+        XCTAssertEqual(Scan.everyVariantPreviewNotice(everyVariant(true)), "every_variant is a 4.0 preview: results and options may change")
+        XCTAssertNil(Scan.everyVariantPreviewNotice(everyVariant(false)))
+    }
+
+    func testEveryVariantWithGivenIndexStores_warnsItIsIgnored() {
+        let ignored = "every_variant is ignored: the given index stores are scanned as they are"
+        XCTAssertEqual(Scan.everyVariantWarnings(everyVariant(true, indexStorePath: ["store"])), [ignored])
+        XCTAssertEqual(Scan.everyVariantWarnings(everyVariant(true, derivedDataPath: ["DD"])), [ignored])
+        XCTAssertEqual(Scan.everyVariantWarnings(everyVariant(false, indexStorePath: ["store"])), [])
+        XCTAssertEqual(Scan.everyVariantWarnings(everyVariant(true)), [])
+    }
+
+    func testEveryVariantWithPlatformConditionalRetention_warnsItIsRedundant() {
+        XCTAssertEqual(
+            Scan.everyVariantWarnings(everyVariant(true, platformConditionalRetention: true)),
+            ["platform conditional retention is redundant with every_variant and will be replaced in 4.0"]
+        )
+        XCTAssertEqual(Scan.everyVariantWarnings(everyVariant(false, platformConditionalRetention: true)), [])
+    }
 }

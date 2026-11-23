@@ -13,6 +13,7 @@ final class SourceFileCollectorTest: XCTestCase {
         let module: String
         let date: Date?
         var platform: IndexPlatform?
+        var store: FilePath = "/DerivedData/Debug"
     }
 
     private let edited = Date(timeIntervalSince1970: 1000)
@@ -58,6 +59,45 @@ final class SourceFileCollectorTest: XCTestCase {
         XCTAssertEqual(current(units, sourceModificationDate: edited), ["fresh", "ios"])
     }
 
+    private func current(_ units: [Unit], sourceModificationDate: Date?, everyVariant: Bool) -> [String] {
+        SourceFileCollector.currentUnits(
+            units,
+            sourceModificationDate: sourceModificationDate,
+            module: \.module,
+            platform: \.platform,
+            store: everyVariant ? { $0.store } : nil,
+            modificationDate: \.date
+        ).map(\.name)
+    }
+
+    /// Two variants of a platform, each in its store: only the Debug one was rebuilt since the file was edited.
+    private var variantUnits: [Unit] {
+        [
+            Unit(name: "debug", module: "Kit", date: edited.addingTimeInterval(60), platform: .iOS, store: "/DerivedData/Debug"),
+            Unit(name: "release", module: "Kit", date: edited.addingTimeInterval(-60), platform: .iOS, store: "/DerivedData/Release"),
+        ]
+    }
+
+    /// The Release variant compiles the file differently: its unit is the only index data of that variant.
+    func testEveryVariant_keepsTheOutdatedUnitOfAnotherVariantOfThePlatform() {
+        XCTAssertEqual(current(variantUnits, sourceModificationDate: edited, everyVariant: true), ["debug", "release"])
+        XCTAssertEqual(outdated(variantUnits, sourceModificationDate: edited, everyVariant: true), ["release"])
+    }
+
+    func testWithoutEveryVariant_aCurrentUnitOfThePlatformInAnotherStoreDropsTheOutdatedOne() {
+        XCTAssertEqual(current(variantUnits, sourceModificationDate: edited, everyVariant: false), ["debug"])
+        XCTAssertEqual(outdated(variantUnits, sourceModificationDate: edited, everyVariant: false), [])
+    }
+
+    /// A renamed package leaves the previous build's units in the variant's own store.
+    func testEveryVariant_stillDropsAnOutdatedUnitBesideACurrentOneOfItsStore() {
+        let units = variantUnits + [
+            Unit(name: "debug-stale", module: "Kit", date: edited.addingTimeInterval(-60), platform: .iOS, store: "/DerivedData/Debug"),
+        ]
+
+        XCTAssertEqual(current(units, sourceModificationDate: edited, everyVariant: true), ["debug", "release"])
+    }
+
     func testUnitsOfSeveralProducts_areAllKeptWhenCurrent() {
         let units = [
             Unit(name: "outskirts", module: "Frontend", date: edited.addingTimeInterval(10)),
@@ -97,12 +137,13 @@ final class SourceFileCollectorTest: XCTestCase {
         XCTAssertEqual(current(units, sourceModificationDate: nil), ["undated", "fresh", "stale"])
     }
 
-    private func outdated(_ units: [Unit], sourceModificationDate: Date?) -> [String] {
+    private func outdated(_ units: [Unit], sourceModificationDate: Date?, everyVariant: Bool = false) -> [String] {
         let kept = SourceFileCollector.currentUnits(
             units,
             sourceModificationDate: sourceModificationDate,
             module: \.module,
             platform: \.platform,
+            store: everyVariant ? { $0.store } : nil,
             modificationDate: \.date
         )
 

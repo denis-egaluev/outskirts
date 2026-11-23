@@ -57,6 +57,16 @@ final class FixCommandTest: XCTestCase {
         XCTAssertNoThrow(try FixCommand.validateScope(of: configuration, projectKind: .spm, allowPartialScan: true))
     }
 
+    func testEveryVariantScanIsRefusedAsNotYetAccepted() throws {
+        let configuration = Configuration()
+        configuration.everyVariant = true
+
+        XCTAssertEqual(FixCommand.PartialScan(of: .xcode(projectPath: "App.xcodeproj"), configuration: configuration), .everyVariant)
+        XCTAssertThrowsError(try FixCommand.validateScope(of: configuration, projectKind: .spm, allowPartialScan: false)) { error in
+            XCTAssertTrue("\(error)".contains("'fix' does not accept every_variant scans yet"), "\(error)")
+        }
+    }
+
     func testDisabledAnalysisIsRefusedEvenWithAllowPartialScan() {
         let configuration = Configuration()
         configuration.disableUnusedLocalizedStringAnalysis = true

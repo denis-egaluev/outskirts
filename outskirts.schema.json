@@ -400,6 +400,55 @@
       "type": "boolean",
       "default": false
     },
+    "every_variant": {
+      "description": "(4.0 preview) Build and index every build variant (platforms, configurations, condition sets) instead of one, and merge them into one scan.",
+      "type": "boolean",
+      "default": false
+    },
+    "variant_platforms": {
+      "description": "(4.0 preview) Platforms built by 'every_variant'; empty means the platforms the targets support.",
+      "type": [
+        "array",
+        "string"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "variant_configurations": {
+      "description": "(4.0 preview) Build configurations built by 'every_variant', or 'all'; empty means Debug.",
+      "type": [
+        "array",
+        "string"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "variant_conditions": {
+      "description": "(4.0 preview) Sets of compilation conditions built by 'every_variant', one variant per set.",
+      "type": [
+        "array",
+        "string"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "variant_triples": {
+      "description": "(4.0 preview) Target triples built by 'every_variant' for Swift packages.",
+      "type": [
+        "array",
+        "string"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
     "index_built_from": {
       "description": "Git revision the index store was built from, e.g. the commit of the build that wrote it. Source files are then judged out of date when git reports them changed since this revision (modified, added, deleted or renamed, untracked files included), whatever their modification date; files outside the git working tree are still judged by date. outskirts cannot check the revision: record it when building.",
       "type": "string"

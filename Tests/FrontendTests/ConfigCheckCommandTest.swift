@@ -26,6 +26,15 @@ final class ConfigCheckCommandTest: XCTestCase {
         XCTAssertEqual(output.stderr, "")
     }
 
+    func testEveryVariantKeysAreRecognized() throws {
+        try write(".outskirts.yml", "every_variant: true\nvariant_platforms: [iOS, macOS]\nvariant_configurations: [all]\nvariant_conditions: [BETA]\nvariant_triples: [x86_64-unknown-linux-gnu]\n")
+
+        let output = try check([])
+
+        XCTAssertEqual(output.status, 0, output.stderr)
+        XCTAssertEqual(output.stdout, ".outskirts.yml: ok\n")
+    }
+
     func testUnknownKeyExitsOneWithTheSuggestion() throws {
         try write("custom.yml", "retain_pubic: true\n")
 
