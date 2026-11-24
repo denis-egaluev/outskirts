@@ -134,8 +134,17 @@ function checkStylesheet() {
       }
     }
   }
-  if (!/:root\{[^}]*--bg:/.test(css) || !/@media \(prefers-color-scheme:dark\)\{:root\{/.test(css)) {
-    errors.push("style.css: the light and dark :root custom properties are missing");
+  if (!/:root\{[^}]*color-scheme:light dark;[^}]*--bg:light-dark\(/.test(css)) {
+    errors.push("style.css: the :root colors must be light-dark() pairs under color-scheme:light dark");
+  }
+  if (!/@media \(prefers-contrast:more\)\{\s*:root\{[^}]*--fg:light-dark\([^}]*--border:/.test(css)) {
+    errors.push("style.css: the prefers-contrast:more variant of the :root colors and borders is missing");
+  }
+  if (/\b1px solid var\(--(?:line|accent)\)/.test(css)) {
+    errors.push("style.css: borders use var(--border) so that the high-contrast variant can thicken them");
+  }
+  if (/@media \(prefers-color-scheme/.test(css)) {
+    errors.push("style.css: colors per mode go through light-dark(), not a prefers-color-scheme block");
   }
 }
 
